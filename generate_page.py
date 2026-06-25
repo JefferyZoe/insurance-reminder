@@ -305,16 +305,15 @@ def generate_html(data, password):
             border-radius: 16px;
             box-shadow: 0 20px 60px rgba(0,0,0,0.15);
             overflow: hidden;
-            display: flex;
-            flex-direction: column;
-            height: calc(100vh - 40px);
         }}
         .header {{
             background: linear-gradient(135deg, #2c3e50, #3498db);
             color: white;
             padding: 30px;
             text-align: center;
-            flex-shrink: 0;
+            position: sticky;
+            top: 0;
+            z-index: 10;
         }}
         .header h1 {{
             font-size: 24px;
@@ -328,7 +327,9 @@ def generate_html(data, password):
             padding: 20px;
             background: #f8fafc;
             border-bottom: 1px solid #eee;
-            flex-shrink: 0;
+            position: sticky;
+            top: 86px;
+            z-index: 9;
         }}
         .summary-section-title {{
             font-size: 13px;
@@ -398,10 +399,6 @@ def generate_html(data, password):
         .content {{
             padding: 20px;
             overflow-x: auto;
-            overflow-y: auto;
-            flex: 1;
-            min-height: 0;
-            -webkit-overflow-scrolling: touch;
         }}
         table {{
             width: 100%;
@@ -452,7 +449,6 @@ def generate_html(data, password):
             color: #999;
             font-size: 12px;
             border-top: 1px solid #eee;
-            flex-shrink: 0;
         }}
         /* 密码输入框样式 */
         .login-wrapper {{
@@ -519,17 +515,18 @@ def generate_html(data, password):
             }}
             .container {{
                 border-radius: 0;
-                height: 100vh;
                 box-shadow: none;
             }}
             .header {{
                 padding: 16px;
+                top: 0;
             }}
             .header h1 {{
                 font-size: 18px;
             }}
             .summary {{
                 padding: 14px;
+                position: static;
             }}
             .summary-cards {{
                 gap: 8px;
