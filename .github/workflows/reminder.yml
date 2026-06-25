@@ -1,0 +1,87 @@
+name: Insurance Reminder
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 1 * * *'  # 每天 UTC 01:00 (北京时间 09:00) 运行
+
+# 需要写入权限以部署 GitHub Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  send-reminder:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Load insurance data from secret
+        env:
+          INSURANCE_DATA: ${{ secrets.INSURANCE_DATA }}
+        run: echo "$INSURANCE_DATA" > insurance_data.json
+
+      - name: Generate detail page
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: python generate_page.py
+
+      - name: Run reminder script
+        env:
+          WX_APPID: ${{ secrets.WX_APPID }}
+          WX_APPSECRET: ${{ secrets.WX_APPSECRET }}
+          WX_TEMPLATE_ID: ${{ secrets.WX_TEMPLATE_ID }}
+          WX_TEMPLATE_ID2: ${{ secrets.WX_TEMPLATE_ID2 }}
+          DETAIL_PAGE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+        run: python reminder.py
+
+  deploy-pages:
+    needs: send-reminder
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Load insurance data from secret
+        env:
+          INSURANCE_DATA: ${{ secrets.INSURANCE_DATA }}
+        run: echo "$INSURANCE_DATA" > insurance_data.json
+
+      - name: Generate detail page
+        env:
+          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+        run: python generate_page.py
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'docs'
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

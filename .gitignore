@@ -1,0 +1,9 @@
+# 保单数据（已迁移到 GitHub Secrets）
+insurance_data.json
+
+# 生成的页面目录
+docs/
+
+# Python
+__pycache__/
+*.pyc

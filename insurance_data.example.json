@@ -1,0 +1,19 @@
+{
+    "users": [
+        {
+            "name": "示例用户",
+            "openid": "your_openid_here"
+        }
+    ],
+    "policies": [
+        {
+            "policy_id": "POL001",
+            "user_name": "示例被保人",
+            "policy_name": "示例保险产品",
+            "company": "示例保险公司",
+            "premium": "10000",
+            "first_insure_date": "2024-01-01",
+            "pay_period_years": 10
+        }
+    ]
+}
