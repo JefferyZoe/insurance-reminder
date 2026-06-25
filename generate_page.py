@@ -401,6 +401,7 @@ def generate_html(data, password):
             overflow-y: auto;
             flex: 1;
             min-height: 0;
+            -webkit-overflow-scrolling: touch;
         }}
         table {{
             width: 100%;
@@ -513,13 +514,19 @@ def generate_html(data, password):
         }}
         @media (max-width: 768px) {{
             body {{
-                padding: 10px;
+                padding: 0;
+                background: #fff;
+            }}
+            .container {{
+                border-radius: 0;
+                height: 100vh;
+                box-shadow: none;
             }}
             .header {{
-                padding: 20px;
+                padding: 16px;
             }}
             .header h1 {{
-                font-size: 20px;
+                font-size: 18px;
             }}
             .summary {{
                 padding: 14px;
