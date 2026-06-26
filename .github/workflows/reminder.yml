@@ -2,8 +2,6 @@ name: Insurance Reminder
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '0 1 * * *'  # 每天 UTC 01:00 (北京时间 09:00) 运行
 
 # 需要写入权限以部署 GitHub Pages
 permissions:
