@@ -103,10 +103,10 @@ def build_content_html(data):
             days_left = f"{days_left_num} 天"
             next_due_str = str(next_due)
             if days_left_num <= 30:
-                status = "🔴 即将到期"
+                status = "🔴 即将缴费"
                 status_class = "status-urgent"
             elif days_left_num <= 60:
-                status = "🟡 临近到期"
+                status = "🟡 临近缴费"
                 status_class = "status-warning"
             else:
                 status = "🟢 正常"
@@ -176,6 +176,7 @@ def build_content_html(data):
     monthly_text = "<span class='monthly-tag active' onclick='filterMonth(0, event)'>全部</span>"
     for month in sorted(monthly_due.keys()):
         monthly_text += f"<span class='monthly-tag' onclick='filterMonth({month}, event)'>{month}月 ¥{monthly_due[month]:,}</span>"
+    monthly_text = f"<div class='monthly-tags'>{monthly_text}</div>"
 
     # 计算每个保单今年的续费月份（用于筛选）
     policy_months = {}
@@ -191,15 +192,25 @@ def build_content_html(data):
     for item in policy_items:
         p = item["p"]
         due_month = policy_months.get(p["policy_id"], 0)
-        rows += f"""<tr data-month="{due_month}">
+        # 进度条百分比
+        progress_pct = int(item['paid'] / p['pay_period_years'] * 100)
+        # 紧急行高亮class（与状态颜色一致）
+        row_class = ""
+        if item["status_class"] == "status-urgent":
+            row_class = "row-urgent"
+        elif item["status_class"] == "status-warning":
+            row_class = "row-warning"
+        
+        rows += f"""<tr data-month="{due_month}" class="{row_class}">
 <td>{p['user_name']}</td>
 <td><strong>{p['policy_name']}</strong></td>
 <td>{p['company']}</td>
-<td class="amount">¥{p['premium']}</td>
+<td class="amount">¥{int(p['premium']):,}</td>
+<td class="amount">¥{int(p['premium']) * item['paid']:,}</td>
 <td class="amount">¥{int(p['premium']) * p['pay_period_years']:,}</td>
 <td>{p['first_insure_date']}</td>
 <td>{item['next_due_str']}</td>
-<td>{item['paid']}/{p['pay_period_years']}期</td>
+<td><div class="progress-wrap"><div class="progress-bar" style="width:{progress_pct}%"></div><span class="progress-text">{item['paid']}/{p['pay_period_years']}期</span></div></td>
 <td>{item['days_left']}</td>
 <td class="{item['status_class']}">{item['status']}</td>
 </tr>"""
@@ -252,6 +263,7 @@ def build_content_html(data):
 <th>保单名称</th>
 <th>保险公司</th>
 <th>保费</th>
+<th>已交保费</th>
 <th>总保费</th>
 <th>首保日期</th>
 <th>下次续费</th>
@@ -325,11 +337,9 @@ def generate_html(data, password):
         }}
         .summary {{
             padding: 20px;
+            padding-bottom: 10px;
             background: #f8fafc;
-            border-bottom: 1px solid #eee;
-            position: sticky;
-            top: 86px;
-            z-index: 9;
+            border-bottom: none;
         }}
         .summary-section-title {{
             font-size: 13px;
@@ -371,20 +381,36 @@ def generate_html(data, password):
         .monthly-detail {{
             display: flex;
             align-items: center;
-            flex-wrap: wrap;
             gap: 8px;
+            line-height: 1;
         }}
         .monthly-title {{
             font-size: 13px;
             color: #666;
+            flex-shrink: 0;
+            line-height: 28px;
+        }}
+        .monthly-tags {{
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            white-space: nowrap;
+            -webkit-overflow-scrolling: touch;
+            align-items: center;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }}
+        .monthly-tags::-webkit-scrollbar {{
+            display: none;
         }}
         .monthly-tag {{
-            display: inline-block;
+            display: inline-flex;
+            align-items: center;
             background: #eef2ff;
             color: #4a5aba;
             font-size: 12px;
-            padding: 4px 10px;
-            border-radius: 12px;
+            padding: 6px 12px;
+            border-radius: 14px;
             font-weight: 500;
             cursor: pointer;
             transition: all 0.2s;
@@ -397,8 +423,9 @@ def generate_html(data, password):
             color: #fff;
         }}
         .content {{
-            padding: 20px;
+            padding: 10px;
             overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
         }}
         table {{
             width: 100%;
@@ -413,9 +440,6 @@ def generate_html(data, password):
             color: #495057;
             border-bottom: 2px solid #dee2e6;
             white-space: nowrap;
-            position: sticky;
-            top: 0;
-            z-index: 1;
         }}
         td {{
             padding: 12px 8px;
@@ -442,6 +466,54 @@ def generate_html(data, password):
         }}
         .status-done {{
             color: #95a5a6;
+        }}
+        /* 进度条 */
+        .progress-wrap {{
+            position: relative;
+            background: #e9ecef;
+            border-radius: 10px;
+            height: 20px;
+            min-width: 80px;
+            overflow: hidden;
+        }}
+        .progress-bar {{
+            height: 100%;
+            background: linear-gradient(90deg, #27ae60, #2ecc71);
+            border-radius: 10px;
+            transition: width 0.6s ease;
+        }}
+        .progress-text {{
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 11px;
+            font-weight: 600;
+            color: #333;
+            white-space: nowrap;
+        }}
+        /* 紧急行高亮 */
+        .row-urgent {{
+            background: #fff0f0;
+            animation: pulse-red 2s ease-in-out infinite;
+        }}
+        .row-urgent:hover {{
+            background: #ffe5e5;
+        }}
+        .row-warning {{
+            background: #fffbf0;
+            animation: pulse-yellow 2s ease-in-out infinite;
+        }}
+        .row-warning:hover {{
+            background: #fff5e0;
+        }}
+        @keyframes pulse-red {{
+            0%, 100% {{ background: #fff0f0; }}
+            50% {{ background: #ffe5e5; }}
+        }}
+        @keyframes pulse-yellow {{
+            0%, 100% {{ background: #fffbf0; }}
+            50% {{ background: #fff5e0; }}
         }}
         .footer {{
             text-align: center;
@@ -548,6 +620,13 @@ def generate_html(data, password):
             }}
             th, td {{
                 padding: 8px 4px;
+            }}
+            .progress-wrap {{
+                min-width: 60px;
+                height: 16px;
+            }}
+            .progress-text {{
+                font-size: 10px;
             }}
             .login-box {{
                 padding: 30px 20px;
