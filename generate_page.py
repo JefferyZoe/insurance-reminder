@@ -313,7 +313,7 @@ def build_content_html(data):
 </div>
 </div>
 <!-- 嵌入 PDF 数据 -->
-<script id="pdf-data" type="application/json">{pdf_data_json}</script>
+<div id="pdf-data" style="display:none;">{pdf_data_json}</div>
 <div class="footer">
 自动生成 · 数据来源于保单管理系统
 </div>"""
@@ -872,8 +872,10 @@ def generate_html(data, password):
             const pdfDataEl = document.getElementById('pdf-data');
             if (pdfDataEl) {{
                 try {{
-                    policyFiles = JSON.parse(pdfDataEl.textContent);
-                }} catch(e) {{}}
+                    policyFiles = JSON.parse(pdfDataEl.textContent || pdfDataEl.innerText || '{{}}');
+                }} catch(e) {{
+                    console.warn('PDF data parse failed', e);
+                }}
             }}
         }} catch (e) {{
             document.getElementById('error-msg').style.display = 'block';
