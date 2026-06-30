@@ -38,7 +38,7 @@ jobs:
           POLICY_REPO: ${{ secrets.POLICY_REPO }}
         run: |
           if [ -n "$POLICY_REPO_TOKEN" ] && [ -n "$POLICY_REPO" ]; then
-            git clone https://x-access-token:${POLICY_REPO_TOKEN}@github.com/${POLICY_REPO}.git policy_files
+            git clone https://x-access-token:${POLICY_REPO_TOKEN}@github.com/${POLICY_REPO}.git policy_files || echo "⚠️ 克隆失败，继续执行"
             echo "✅ 保单文件仓库克隆成功"
           else
             mkdir -p policy_files
@@ -87,7 +87,7 @@ jobs:
           POLICY_REPO: ${{ secrets.POLICY_REPO }}
         run: |
           if [ -n "$POLICY_REPO_TOKEN" ] && [ -n "$POLICY_REPO" ]; then
-            git clone https://x-access-token:${POLICY_REPO_TOKEN}@github.com/${POLICY_REPO}.git policy_files
+            git clone https://x-access-token:${POLICY_REPO_TOKEN}@github.com/${POLICY_REPO}.git policy_files || echo "⚠️ 克隆失败，继续执行"
             echo "✅ 保单文件仓库克隆成功"
           else
             mkdir -p policy_files
