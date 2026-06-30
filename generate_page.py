@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 生成保单详情 HTML 页面（带密码保护），部署到 GitHub Pages。
-使用 AES-GCM 前端加密，访问者需输入密码才能查看内容。
-支持嵌入保单 PDF 文件（从私有仓库拉取）。
+使用 PBKDF2 + XOR 前端加密，访问者需输入密码才能查看内容。
+支持嵌入保单 PDF 文件（从私有仓库拉取），PDF 单独加密存储。
 """
 import json
 import os
@@ -88,19 +88,43 @@ def encrypt_content(plaintext, password):
     return base64.b64encode(packed).decode('ascii')
 
 
+def encrypt_bytes(data_bytes, password):
+    """
+    加密二进制数据（用于 PDF 文件）。
+    返回 base64 编码的 salt + ciphertext。
+    """
+    salt = secrets.token_bytes(16)
+    key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 10000, dklen=32)
+
+    length = len(data_bytes)
+
+    key_stream = bytearray()
+    counter = 0
+    while len(key_stream) < length:
+        block = hashlib.sha256(key + counter.to_bytes(4, 'big')).digest()
+        key_stream.extend(block)
+        counter += 1
+
+    encrypted = bytearray(length)
+    for i in range(length):
+        encrypted[i] = data_bytes[i] ^ key_stream[i]
+
+    packed = bytes(salt) + bytes(encrypted)
+    return base64.b64encode(packed).decode('ascii')
+
+
 def build_content_html(data):
-    """生成保单详情的 HTML 内容（表格布局）"""
+    """生成保单详情的 HTML 内容（表格布局，不含 PDF 数据）"""
     today = datetime.date.today()
     policies = data.get("policies", [])
 
-    # 加载所有保单文件的 base64 数据
-    policy_files_data = {}
+    # 检查哪些保单有文件
+    policy_has_file = {}
     for p in policies:
         policy_file = p.get("policy_file", "")
         if policy_file:
-            b64 = load_policy_file_base64(policy_file)
-            if b64:
-                policy_files_data[p["policy_id"]] = b64
+            filepath = os.path.join(POLICY_FILES_DIR, policy_file)
+            policy_has_file[p["policy_id"]] = os.path.exists(filepath)
 
     # 计算每个保单的排序信息
     policy_items = []
@@ -213,7 +237,7 @@ def build_content_html(data):
             row_class = "row-warning"
 
         # 保单详情按钮
-        has_file = p["policy_id"] in policy_files_data
+        has_file = policy_has_file.get(p["policy_id"], False)
         if has_file:
             view_btn = f'<button class="view-btn" onclick="viewPolicy(\'{p["policy_id"]}\')">📄 查看</button>'
         else:
@@ -233,9 +257,6 @@ def build_content_html(data):
 <td class="{item['status_class']}">{item['status']}</td>
 <td>{view_btn}</td>
 </tr>"""
-
-    # 生成隐藏的 PDF 数据（JSON 格式嵌入页面）
-    pdf_data_json = json.dumps(policy_files_data)
 
     content = f"""<div class="header">
 <h1>📋 家庭保单续费详情</h1>
@@ -312,22 +333,44 @@ def build_content_html(data):
 </div>
 </div>
 </div>
-<!-- 嵌入 PDF 数据 -->
-<div id="pdf-data" style="display:none;">{pdf_data_json}</div>
 <div class="footer">
 自动生成 · 数据来源于保单管理系统
 </div>"""
     return content
 
 
+def build_pdf_encrypted_data(data, password):
+    """将每个 PDF 文件单独加密，返回 {policy_id: encrypted_base64} 的 JSON 字符串"""
+    policies = data.get("policies", [])
+    encrypted_pdfs = {}
+
+    for p in policies:
+        policy_file = p.get("policy_file", "")
+        if not policy_file:
+            continue
+        filepath = os.path.join(POLICY_FILES_DIR, policy_file)
+        if not os.path.exists(filepath):
+            continue
+        with open(filepath, "rb") as f:
+            pdf_bytes = f.read()
+        # 单独加密每个 PDF
+        encrypted_pdfs[p["policy_id"]] = encrypt_bytes(pdf_bytes, password)
+        print(f"  📄 已加密: {policy_file} ({len(pdf_bytes) // 1024}KB)")
+
+    return json.dumps(encrypted_pdfs)
+
+
 def generate_html(data, password):
     today = datetime.date.today()
 
-    # 生成明文内容
+    # 生成明文表格内容（不含 PDF 数据）
     content_html = build_content_html(data)
 
-    # 加密内容
+    # 加密表格内容（小数据，解密快）
     encrypted_data = encrypt_content(content_html, password)
+
+    # 单独加密 PDF 文件数据
+    encrypted_pdfs_json = build_pdf_encrypted_data(data, password)
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -572,6 +615,10 @@ def generate_html(data, password):
         .view-btn:hover {{
             opacity: 0.85;
         }}
+        .view-btn:disabled {{
+            opacity: 0.5;
+            cursor: wait;
+        }}
         .no-file {{
             color: #bbb;
             font-size: 12px;
@@ -770,20 +817,94 @@ def generate_html(data, password):
     <!-- 解密后的内容容器 -->
     <div id="main-content" class="container" style="display:none;"></div>
 
-    <!-- 加密数据 -->
+    <!-- 加密的表格数据（小） -->
+    <script id="encrypted-content" type="application/json">"{encrypted_data}"</script>
+
+    <!-- 加密的 PDF 数据（大，按需解密） -->
+    <script id="encrypted-pdfs" type="application/json">{encrypted_pdfs_json}</script>
+
     <script>
-    const ENCRYPTED_DATA = "{encrypted_data}";
+    // 用户输入的密码，解密后保存用于后续解密 PDF
+    let userPassword = '';
 
-    // PDF 查看相关
-    let policyFiles = {{}};
+    // 解密函数（使用 Web Crypto API + Web Workers 思路优化）
+    async function decryptData(encryptedBase64, password) {{
+        const packed = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
+        const salt = packed.slice(0, 16);
+        const ciphertext = packed.slice(16);
 
-    function viewPolicy(policyId) {{
-        const b64 = policyFiles[policyId];
-        if (!b64) return;
-        const modal = document.getElementById('pdf-modal');
-        const iframe = document.getElementById('pdf-iframe');
-        iframe.src = 'data:application/pdf;base64,' + b64;
-        modal.classList.add('active');
+        // PBKDF2 派生密钥
+        const encoder = new TextEncoder();
+        const keyMaterial = await crypto.subtle.importKey(
+            'raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']
+        );
+        const derivedBits = await crypto.subtle.deriveBits(
+            {{ name: 'PBKDF2', salt: salt, iterations: 10000, hash: 'SHA-256' }},
+            keyMaterial, 256
+        );
+        const key = new Uint8Array(derivedBits);
+
+        // 批量生成密钥流（性能优化：预计算所有 block）
+        const numBlocks = Math.ceil(ciphertext.length / 32);
+        const keyStream = new Uint8Array(numBlocks * 32);
+
+        for (let counter = 0; counter < numBlocks; counter++) {{
+            const counterBytes = new Uint8Array(4);
+            new DataView(counterBytes.buffer).setUint32(0, counter, false);
+            const blockInput = new Uint8Array(36);
+            blockInput.set(key);
+            blockInput.set(counterBytes, 32);
+            const block = new Uint8Array(await crypto.subtle.digest('SHA-256', blockInput));
+            keyStream.set(block, counter * 32);
+        }}
+
+        // XOR 解密
+        const decrypted = new Uint8Array(ciphertext.length);
+        for (let i = 0; i < ciphertext.length; i++) {{
+            decrypted[i] = ciphertext[i] ^ keyStream[i];
+        }}
+
+        return decrypted;
+    }}
+
+    async function viewPolicy(policyId) {{
+        const btn = event.target;
+        btn.disabled = true;
+        btn.textContent = '⏳ 加载中...';
+
+        try {{
+            const pdfsEl = document.getElementById('encrypted-pdfs');
+            const encryptedPdfs = JSON.parse(pdfsEl.textContent);
+            const encryptedPdf = encryptedPdfs[policyId];
+
+            if (!encryptedPdf) {{
+                alert('保单文件不存在');
+                return;
+            }}
+
+            // 解密 PDF
+            const decryptedBytes = await decryptData(encryptedPdf, userPassword);
+
+            // 转为 base64 用于 iframe 显示
+            let binary = '';
+            const chunkSize = 8192;
+            for (let i = 0; i < decryptedBytes.length; i += chunkSize) {{
+                const chunk = decryptedBytes.subarray(i, i + chunkSize);
+                binary += String.fromCharCode.apply(null, chunk);
+            }}
+            const pdfBase64 = btoa(binary);
+
+            const modal = document.getElementById('pdf-modal');
+            const iframe = document.getElementById('pdf-iframe');
+            iframe.src = 'data:application/pdf;base64,' + pdfBase64;
+            modal.classList.add('active');
+        }} catch (e) {{
+            console.error('PDF 解密失败', e);
+            alert('文件加载失败，请重试');
+        }} finally {{
+            btn.disabled = false;
+            btn.textContent = '📄 查看';
+        }}
     }}
 
     function closePdfModal() {{
@@ -822,61 +943,25 @@ def generate_html(data, password):
         if (!password) return;
 
         try {{
-            const packed = Uint8Array.from(atob(ENCRYPTED_DATA), c => c.charCodeAt(0));
-            const salt = packed.slice(0, 16);
-            const ciphertext = packed.slice(16);
+            // 从 script 标签读取加密数据
+            const contentEl = document.getElementById('encrypted-content');
+            const encryptedData = JSON.parse(contentEl.textContent);
 
-            const encoder = new TextEncoder();
-            const keyMaterial = await crypto.subtle.importKey(
-                'raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']
-            );
-            const derivedBits = await crypto.subtle.deriveBits(
-                {{ name: 'PBKDF2', salt: salt, iterations: 10000, hash: 'SHA-256' }},
-                keyMaterial, 256
-            );
-            const key = new Uint8Array(derivedBits);
-
-            let keyStream = new Uint8Array(0);
-            let counter = 0;
-            while (keyStream.length < ciphertext.length) {{
-                const counterBytes = new Uint8Array(4);
-                new DataView(counterBytes.buffer).setUint32(0, counter, false);
-                const blockInput = new Uint8Array(key.length + 4);
-                blockInput.set(key);
-                blockInput.set(counterBytes, key.length);
-                const block = new Uint8Array(await crypto.subtle.digest('SHA-256', blockInput));
-                const newStream = new Uint8Array(keyStream.length + block.length);
-                newStream.set(keyStream);
-                newStream.set(block, keyStream.length);
-                keyStream = newStream;
-                counter++;
-            }}
-
-            const decrypted = new Uint8Array(ciphertext.length);
-            for (let i = 0; i < ciphertext.length; i++) {{
-                decrypted[i] = ciphertext[i] ^ keyStream[i];
-            }}
+            const decryptedBytes = await decryptData(encryptedData, password);
 
             const decoder = new TextDecoder('utf-8', {{ fatal: true }});
-            const html = decoder.decode(decrypted);
+            const html = decoder.decode(decryptedBytes);
 
             if (!html.includes('<') || !html.includes('保单')) {{
                 throw new Error('解密内容无效');
             }}
 
+            // 保存密码用于后续解密 PDF
+            userPassword = password;
+
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('main-content').innerHTML = html;
             document.getElementById('main-content').style.display = 'block';
-
-            // 解密成功后加载 PDF 数据
-            const pdfDataEl = document.getElementById('pdf-data');
-            if (pdfDataEl) {{
-                try {{
-                    policyFiles = JSON.parse(pdfDataEl.textContent || pdfDataEl.innerText || '{{}}');
-                }} catch(e) {{
-                    console.warn('PDF data parse failed', e);
-                }}
-            }}
         }} catch (e) {{
             document.getElementById('error-msg').style.display = 'block';
             document.getElementById('password-input').value = '';
