@@ -3,25 +3,27 @@ name: Insurance Reminder
 on:
   workflow_dispatch:
 
-# 需要写入权限以部署 GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
 jobs:
-  send-reminder:
+  deploy-pages:
     runs-on: ubuntu-latest
-    
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -39,56 +41,6 @@ jobs:
         run: |
           if [ -n "$POLICY_REPO_TOKEN" ] && [ -n "$POLICY_REPO" ]; then
             git clone https://x-access-token:${POLICY_REPO_TOKEN}@github.com/${POLICY_REPO}.git policy_files || echo "⚠️ 克隆失败，继续执行"
-            echo "✅ 保单文件仓库克隆成功"
-          else
-            mkdir -p policy_files
-            echo "⚠️ 未配置保单文件仓库，跳过"
-          fi
-
-      - name: Generate detail page
-        env:
-          PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
-          POLICY_FILES_DIR: ./policy_files
-        run: python generate_page.py
-
-      - name: Run reminder script
-        env:
-          WX_APPID: ${{ secrets.WX_APPID }}
-          WX_APPSECRET: ${{ secrets.WX_APPSECRET }}
-          WX_TEMPLATE_ID: ${{ secrets.WX_TEMPLATE_ID }}
-          WX_TEMPLATE_ID2: ${{ secrets.WX_TEMPLATE_ID2 }}
-          DETAIL_PAGE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
-        run: python reminder.py
-
-  deploy-pages:
-    needs: send-reminder
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Load insurance data from secret
-        env:
-          INSURANCE_DATA: ${{ secrets.INSURANCE_DATA }}
-        run: echo "$INSURANCE_DATA" > insurance_data.json
-
-      - name: Clone private policy files repo
-        env:
-          POLICY_REPO_TOKEN: ${{ secrets.POLICY_REPO_TOKEN }}
-          POLICY_REPO: ${{ secrets.POLICY_REPO }}
-        run: |
-          if [ -n "$POLICY_REPO_TOKEN" ] && [ -n "$POLICY_REPO" ]; then
-            git clone https://x-access-token:${POLICY_REPO_TOKEN}@github.com/${POLICY_REPO}.git policy_files || echo "⚠️ 克隆失败，继续执行"
-            echo "✅ 保单文件仓库克隆成功"
           else
             mkdir -p policy_files
             echo "⚠️ 未配置保单文件仓库，跳过"
@@ -111,3 +63,35 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+  send-reminder:
+    needs: deploy-pages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Load insurance data from secret
+        env:
+          INSURANCE_DATA: ${{ secrets.INSURANCE_DATA }}
+        run: echo "$INSURANCE_DATA" > insurance_data.json
+
+      - name: Run reminder script
+        env:
+          WX_APPID: ${{ secrets.WX_APPID }}
+          WX_APPSECRET: ${{ secrets.WX_APPSECRET }}
+          WX_TEMPLATE_ID: ${{ secrets.WX_TEMPLATE_ID }}
+          WX_TEMPLATE_ID2: ${{ secrets.WX_TEMPLATE_ID2 }}
+          DETAIL_PAGE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+        run: python reminder.py
