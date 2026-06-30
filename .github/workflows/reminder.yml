@@ -32,9 +32,23 @@ jobs:
           INSURANCE_DATA: ${{ secrets.INSURANCE_DATA }}
         run: echo "$INSURANCE_DATA" > insurance_data.json
 
+      - name: Clone private policy files repo
+        env:
+          POLICY_REPO_TOKEN: ${{ secrets.POLICY_REPO_TOKEN }}
+          POLICY_REPO: ${{ secrets.POLICY_REPO }}
+        run: |
+          if [ -n "$POLICY_REPO_TOKEN" ] && [ -n "$POLICY_REPO" ]; then
+            git clone https://x-access-token:${POLICY_REPO_TOKEN}@github.com/${POLICY_REPO}.git policy_files
+            echo "✅ 保单文件仓库克隆成功"
+          else
+            mkdir -p policy_files
+            echo "⚠️ 未配置保单文件仓库，跳过"
+          fi
+
       - name: Generate detail page
         env:
           PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+          POLICY_FILES_DIR: ./policy_files
         run: python generate_page.py
 
       - name: Run reminder script
@@ -67,9 +81,23 @@ jobs:
           INSURANCE_DATA: ${{ secrets.INSURANCE_DATA }}
         run: echo "$INSURANCE_DATA" > insurance_data.json
 
+      - name: Clone private policy files repo
+        env:
+          POLICY_REPO_TOKEN: ${{ secrets.POLICY_REPO_TOKEN }}
+          POLICY_REPO: ${{ secrets.POLICY_REPO }}
+        run: |
+          if [ -n "$POLICY_REPO_TOKEN" ] && [ -n "$POLICY_REPO" ]; then
+            git clone https://x-access-token:${POLICY_REPO_TOKEN}@github.com/${POLICY_REPO}.git policy_files
+            echo "✅ 保单文件仓库克隆成功"
+          else
+            mkdir -p policy_files
+            echo "⚠️ 未配置保单文件仓库，跳过"
+          fi
+
       - name: Generate detail page
         env:
           PAGE_PASSWORD: ${{ secrets.PAGE_PASSWORD }}
+          POLICY_FILES_DIR: ./policy_files
         run: python generate_page.py
 
       - name: Setup Pages

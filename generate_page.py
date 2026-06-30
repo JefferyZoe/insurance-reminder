@@ -2,6 +2,7 @@
 """
 生成保单详情 HTML 页面（带密码保护），部署到 GitHub Pages。
 使用 AES-GCM 前端加密，访问者需输入密码才能查看内容。
+支持嵌入保单 PDF 文件（从私有仓库拉取）。
 """
 import json
 import os
@@ -18,17 +19,30 @@ OUTPUT_FILE = os.path.join(OUTPUT_DIR, "index.html")
 # 页面访问密码，通过环境变量设置
 PAGE_PASSWORD = os.environ.get('PAGE_PASSWORD', '123456')
 
+# 保单文件目录（从私有仓库克隆到本地的路径）
+POLICY_FILES_DIR = os.environ.get('POLICY_FILES_DIR', os.path.join(SCRIPT_DIR, "policy_files"))
+
 
 def load_config():
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
+def load_policy_file_base64(filename):
+    """读取保单 PDF 文件并返回 base64 编码"""
+    if not filename:
+        return None
+    filepath = os.path.join(POLICY_FILES_DIR, filename)
+    if not os.path.exists(filepath):
+        print(f"⚠️  保单文件不存在: {filepath}")
+        return None
+    with open(filepath, "rb") as f:
+        return base64.b64encode(f.read()).decode('ascii')
+
+
 def calculate_next_due_date(first_insure_date_str, pay_period_years):
     first_date = datetime.datetime.strptime(first_insure_date_str, "%Y-%m-%d").date()
     today = datetime.date.today()
-    # pay_period_years 表示总共缴费期数（含首保）
-    # 续费次数 = pay_period_years - 1（首保之后还需续费的次数）
     end_year = first_date.year + pay_period_years - 1
 
     for year in range(first_date.year + 1, end_year + 1):
@@ -54,14 +68,11 @@ def encrypt_content(plaintext, password):
     返回 base64 编码的 salt + ciphertext 供前端解密。
     """
     salt = secrets.token_bytes(16)
-
-    # PBKDF2 派生密钥
     key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 10000, dklen=32)
 
     plaintext_bytes = plaintext.encode('utf-8')
     length = len(plaintext_bytes)
 
-    # 生成密钥流（使用 bytearray 提高性能）
     key_stream = bytearray()
     counter = 0
     while len(key_stream) < length:
@@ -69,12 +80,10 @@ def encrypt_content(plaintext, password):
         key_stream.extend(block)
         counter += 1
 
-    # XOR 加密
     encrypted = bytearray(length)
     for i in range(length):
         encrypted[i] = plaintext_bytes[i] ^ key_stream[i]
 
-    # 打包: salt(16) + encrypted
     packed = bytes(salt) + bytes(encrypted)
     return base64.b64encode(packed).decode('ascii')
 
@@ -84,12 +93,21 @@ def build_content_html(data):
     today = datetime.date.today()
     policies = data.get("policies", [])
 
+    # 加载所有保单文件的 base64 数据
+    policy_files_data = {}
+    for p in policies:
+        policy_file = p.get("policy_file", "")
+        if policy_file:
+            b64 = load_policy_file_base64(policy_file)
+            if b64:
+                policy_files_data[p["policy_id"]] = b64
+
     # 计算每个保单的排序信息
     policy_items = []
     for p in policies:
         next_due = calculate_next_due_date(p["first_insure_date"], p["pay_period_years"])
         if next_due is None:
-            days_left_num = 999999  # 已缴清的排最后
+            days_left_num = 999999
             paid = p["pay_period_years"]
             status = "✅ 已缴清"
             days_left = "-"
@@ -122,13 +140,12 @@ def build_content_html(data):
             "next_due_str": next_due_str,
         })
 
-    # 按剩余天数升序排序（已缴清的 999999 自然排到最后）
     policy_items.sort(key=lambda x: x["days_left_num"])
 
-    # 计算所有保单的总保费统计（包含已缴清的）
-    grand_total = 0       # 所有保单总保费
-    grand_paid = 0        # 所有保单已交保费
-    grand_remaining = 0   # 所有保单剩余保费
+    # 计算所有保单的总保费统计
+    grand_total = 0
+    grand_paid = 0
+    grand_remaining = 0
 
     for item in policy_items:
         p = item["p"]
@@ -138,47 +155,43 @@ def build_content_html(data):
         grand_paid += premium * item["paid"]
         grand_remaining += premium * (total_periods - item["paid"])
 
-    # 计算今年保费统计（排除已缴清的）
+    # 计算今年保费统计
     current_year = today.year
-    total_this_year = 0  # 今年需交总保费
-    paid_this_year = 0   # 今年已交
-    unpaid_this_year = 0 # 今年还需交
-    monthly_due = {}     # 按月份统计待交保费
+    total_this_year = 0
+    paid_this_year = 0
+    unpaid_this_year = 0
+    monthly_due = {}
 
     for item in policy_items:
         p = item["p"]
         next_due = calculate_next_due_date(p["first_insure_date"], p["pay_period_years"])
         if next_due is None:
-            continue  # 已缴清，跳过
+            continue
 
-        # 判断今年是否有续费日
         first_date = datetime.datetime.strptime(p["first_insure_date"], "%Y-%m-%d").date()
         try:
             this_year_due = first_date.replace(year=current_year)
         except ValueError:
             this_year_due = first_date.replace(year=current_year, day=28)
 
-        # 如果今年的续费日在缴费期限内
         end_year = first_date.year + p["pay_period_years"] - 1
         if first_date.year < current_year <= end_year:
             premium = int(p["premium"])
             total_this_year += premium
             if this_year_due < today:
-                # 已过了续费日，视为已交
                 paid_this_year += premium
             else:
-                # 还没到续费日，视为未交
                 unpaid_this_year += premium
                 month = this_year_due.month
                 monthly_due[month] = monthly_due.get(month, 0) + premium
 
-    # 构建月度明细文本（可点击筛选）
+    # 构建月度明细文本
     monthly_text = "<span class='monthly-tag active' onclick='filterMonth(0, event)'>全部</span>"
     for month in sorted(monthly_due.keys()):
         monthly_text += f"<span class='monthly-tag' onclick='filterMonth({month}, event)'>{month}月 ¥{monthly_due[month]:,}</span>"
     monthly_text = f"<div class='monthly-tags'>{monthly_text}</div>"
 
-    # 计算每个保单今年的续费月份（用于筛选）
+    # 计算每个保单今年的续费月份
     policy_months = {}
     for item in policy_items:
         p = item["p"]
@@ -192,15 +205,20 @@ def build_content_html(data):
     for item in policy_items:
         p = item["p"]
         due_month = policy_months.get(p["policy_id"], 0)
-        # 进度条百分比
         progress_pct = int(item['paid'] / p['pay_period_years'] * 100)
-        # 紧急行高亮class（与状态颜色一致）
         row_class = ""
         if item["status_class"] == "status-urgent":
             row_class = "row-urgent"
         elif item["status_class"] == "status-warning":
             row_class = "row-warning"
-        
+
+        # 保单详情按钮
+        has_file = p["policy_id"] in policy_files_data
+        if has_file:
+            view_btn = f'<button class="view-btn" onclick="viewPolicy(\'{p["policy_id"]}\')">📄 查看</button>'
+        else:
+            view_btn = '<span class="no-file">暂无</span>'
+
         rows += f"""<tr data-month="{due_month}" class="{row_class}">
 <td>{p['user_name']}</td>
 <td><strong>{p['policy_name']}</strong></td>
@@ -213,7 +231,11 @@ def build_content_html(data):
 <td><div class="progress-wrap"><div class="progress-bar" style="width:{progress_pct}%"></div><span class="progress-text">{item['paid']}/{p['pay_period_years']}期</span></div></td>
 <td>{item['days_left']}</td>
 <td class="{item['status_class']}">{item['status']}</td>
+<td>{view_btn}</td>
 </tr>"""
+
+    # 生成隐藏的 PDF 数据（JSON 格式嵌入页面）
+    pdf_data_json = json.dumps(policy_files_data)
 
     content = f"""<div class="header">
 <h1>📋 家庭保单续费详情</h1>
@@ -270,6 +292,7 @@ def build_content_html(data):
 <th>缴费进度</th>
 <th>剩余天数</th>
 <th>状态</th>
+<th>保单详情</th>
 </tr>
 </thead>
 <tbody>
@@ -277,6 +300,20 @@ def build_content_html(data):
 </tbody>
 </table>
 </div>
+<!-- PDF 弹窗 -->
+<div id="pdf-modal" class="modal" onclick="closeModal(event)">
+<div class="modal-content" onclick="event.stopPropagation()">
+<div class="modal-header">
+<span class="modal-title">保单文件</span>
+<button class="modal-close" onclick="closePdfModal()">✕</button>
+</div>
+<div class="modal-body">
+<iframe id="pdf-iframe" src=""></iframe>
+</div>
+</div>
+</div>
+<!-- 嵌入 PDF 数据 -->
+<script id="pdf-data" type="application/json">{pdf_data_json}</script>
 <div class="footer">
 自动生成 · 数据来源于保单管理系统
 </div>"""
@@ -285,10 +322,10 @@ def build_content_html(data):
 
 def generate_html(data, password):
     today = datetime.date.today()
-    
+
     # 生成明文内容
     content_html = build_content_html(data)
-    
+
     # 加密内容
     encrypted_data = encrypt_content(content_html, password)
 
@@ -467,7 +504,6 @@ def generate_html(data, password):
         .status-done {{
             color: #95a5a6;
         }}
-        /* 进度条 */
         .progress-wrap {{
             position: relative;
             background: #e9ecef;
@@ -492,7 +528,6 @@ def generate_html(data, password):
             color: #333;
             white-space: nowrap;
         }}
-        /* 紧急行高亮 */
         .row-urgent {{
             background: #fff0f0;
             animation: pulse-red 2s ease-in-out infinite;
@@ -521,6 +556,87 @@ def generate_html(data, password):
             color: #999;
             font-size: 12px;
             border-top: 1px solid #eee;
+        }}
+        /* 查看保单按钮 */
+        .view-btn {{
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: opacity 0.3s;
+            white-space: nowrap;
+        }}
+        .view-btn:hover {{
+            opacity: 0.85;
+        }}
+        .no-file {{
+            color: #bbb;
+            font-size: 12px;
+        }}
+        /* PDF 弹窗 */
+        .modal {{
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.6);
+            z-index: 9999;
+            align-items: center;
+            justify-content: center;
+        }}
+        .modal.active {{
+            display: flex;
+        }}
+        .modal-content {{
+            background: #fff;
+            border-radius: 12px;
+            width: 90%;
+            max-width: 900px;
+            height: 85vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }}
+        .modal-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 20px;
+            border-bottom: 1px solid #eee;
+            background: #f8f9fa;
+        }}
+        .modal-title {{
+            font-size: 16px;
+            font-weight: 600;
+            color: #2c3e50;
+        }}
+        .modal-close {{
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: #666;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }}
+        .modal-close:hover {{
+            background: #eee;
+        }}
+        .modal-body {{
+            flex: 1;
+            padding: 0;
+            overflow: hidden;
+        }}
+        .modal-body iframe {{
+            width: 100%;
+            height: 100%;
+            border: none;
         }}
         /* 密码输入框样式 */
         .login-wrapper {{
@@ -631,6 +747,11 @@ def generate_html(data, password):
             .login-box {{
                 padding: 30px 20px;
             }}
+            .modal-content {{
+                width: 100%;
+                height: 100vh;
+                border-radius: 0;
+            }}
         }}
     </style>
 </head>
@@ -653,15 +774,38 @@ def generate_html(data, password):
     <script>
     const ENCRYPTED_DATA = "{encrypted_data}";
 
+    // PDF 查看相关
+    let policyFiles = {{}};
+
+    function viewPolicy(policyId) {{
+        const b64 = policyFiles[policyId];
+        if (!b64) return;
+        const modal = document.getElementById('pdf-modal');
+        const iframe = document.getElementById('pdf-iframe');
+        iframe.src = 'data:application/pdf;base64,' + b64;
+        modal.classList.add('active');
+    }}
+
+    function closePdfModal() {{
+        const modal = document.getElementById('pdf-modal');
+        const iframe = document.getElementById('pdf-iframe');
+        modal.classList.remove('active');
+        iframe.src = '';
+    }}
+
+    function closeModal(e) {{
+        if (e.target === e.currentTarget) {{
+            closePdfModal();
+        }}
+    }}
+
     function filterMonth(month, e) {{
         e.preventDefault();
         e.stopPropagation();
 
-        // 切换 active 状态
         document.querySelectorAll('.monthly-tag').forEach(tag => tag.classList.remove('active'));
         e.target.classList.add('active');
 
-        // 筛选表格行
         const rows = document.querySelectorAll('table tbody tr');
         rows.forEach(row => {{
             if (month === 0) {{
@@ -678,14 +822,10 @@ def generate_html(data, password):
         if (!password) return;
 
         try {{
-            // Base64 解码
             const packed = Uint8Array.from(atob(ENCRYPTED_DATA), c => c.charCodeAt(0));
-            
-            // 提取 salt(前16字节) 和密文
             const salt = packed.slice(0, 16);
             const ciphertext = packed.slice(16);
 
-            // PBKDF2 派生密钥
             const encoder = new TextEncoder();
             const keyMaterial = await crypto.subtle.importKey(
                 'raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']
@@ -696,7 +836,6 @@ def generate_html(data, password):
             );
             const key = new Uint8Array(derivedBits);
 
-            // 生成密钥流并解密 (与 Python 端一致的 XOR 流加密)
             let keyStream = new Uint8Array(0);
             let counter = 0;
             while (keyStream.length < ciphertext.length) {{
@@ -713,25 +852,29 @@ def generate_html(data, password):
                 counter++;
             }}
 
-            // XOR 解密
             const decrypted = new Uint8Array(ciphertext.length);
             for (let i = 0; i < ciphertext.length; i++) {{
                 decrypted[i] = ciphertext[i] ^ keyStream[i];
             }}
 
-            // 尝试解码为 UTF-8
             const decoder = new TextDecoder('utf-8', {{ fatal: true }});
             const html = decoder.decode(decrypted);
 
-            // 简单验证解密结果是否为有效 HTML
             if (!html.includes('<') || !html.includes('保单')) {{
                 throw new Error('解密内容无效');
             }}
 
-            // 解密成功，显示内容
             document.getElementById('login-screen').style.display = 'none';
             document.getElementById('main-content').innerHTML = html;
             document.getElementById('main-content').style.display = 'block';
+
+            // 解密成功后加载 PDF 数据
+            const pdfDataEl = document.getElementById('pdf-data');
+            if (pdfDataEl) {{
+                try {{
+                    policyFiles = JSON.parse(pdfDataEl.textContent);
+                }} catch(e) {{}}
+            }}
         }} catch (e) {{
             document.getElementById('error-msg').style.display = 'block';
             document.getElementById('password-input').value = '';

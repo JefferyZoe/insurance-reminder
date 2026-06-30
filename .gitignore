@@ -4,6 +4,9 @@ insurance_data.json
 # 生成的页面目录
 docs/
 
+# 保单文件目录（从私有仓库克隆）
+policy_files/
+
 # Python
 __pycache__/
 *.pyc

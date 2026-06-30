@@ -13,7 +13,8 @@
             "company": "示例保险公司",
             "premium": "10000",
             "first_insure_date": "2024-01-01",
-            "pay_period_years": 10
+            "pay_period_years": 10,
+            "policy_file": "POL001.pdf"
         }
     ]
 }
