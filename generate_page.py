@@ -230,6 +230,7 @@ def build_cash_value_html(data, cash_values):
         year_divs += f"""<div class="cash-year-block" data-cash-year="{yr}" style="{display}">
 <div class="summary-cards">
 <div class="summary-card"><div class="summary-label">总现金价值</div><div class="summary-value">¥{yd['total_cv']:,.0f}</div></div>
+<div class="summary-card"><div class="summary-label">浮动盈亏</div><div class="summary-value {'green' if yd['total_cv'] - yd['total_premium'] >= 0 else 'red'}">¥{yd['total_cv'] - yd['total_premium']:,.0f}</div></div>
 </div>
 <table class="cash-table"><thead><tr>
 <th>被保人</th><th>保单</th><th>保单年度</th><th>现金价值</th>
