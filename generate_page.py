@@ -390,15 +390,26 @@ async function decryptData(encryptedBase64, password) {
     var key = new Uint8Array(derivedBits);
     var numBlocks = Math.ceil(ciphertext.length / 32);
     var keyStream = new Uint8Array(numBlocks * 32);
-    for (var i = 0; i < numBlocks; i++) {
-        var counterBytes = new Uint8Array(4);
-        new DataView(counterBytes.buffer).setUint32(0, i, false);
-        var blockInput = new Uint8Array(36);
-        blockInput.set(key);
-        blockInput.set(counterBytes, 32);
-        var block = new Uint8Array(await crypto.subtle.digest('SHA-256', blockInput));
-        keyStream.set(block, i * 32);
+
+    // 批量并行计算 SHA-256 blocks（每批 256 个）
+    var batchSize = 256;
+    for (var bStart = 0; bStart < numBlocks; bStart += batchSize) {
+        var bEnd = Math.min(bStart + batchSize, numBlocks);
+        var promises = [];
+        for (var i = bStart; i < bEnd; i++) {
+            var counterBytes = new Uint8Array(4);
+            new DataView(counterBytes.buffer).setUint32(0, i, false);
+            var blockInput = new Uint8Array(36);
+            blockInput.set(key);
+            blockInput.set(counterBytes, 32);
+            promises.push(crypto.subtle.digest('SHA-256', blockInput));
+        }
+        var results = await Promise.all(promises);
+        for (var r = 0; r < results.length; r++) {
+            keyStream.set(new Uint8Array(results[r]), (bStart + r) * 32);
+        }
     }
+
     var decrypted = new Uint8Array(ciphertext.length);
     for (var j = 0; j < ciphertext.length; j++) {
         decrypted[j] = ciphertext[j] ^ keyStream[j];
@@ -430,11 +441,15 @@ async function viewPolicy(policyId) {
     btn.disabled = true;
     btn.textContent = '\u23f3 加载中...';
     try {
+        btn.textContent = '\u23f3 下载中...';
         var resp = await fetch('pdfs/' + policyId + '.enc');
-        if (!resp.ok) throw new Error('fetch failed');
+        if (!resp.ok) throw new Error('文件不存在(HTTP ' + resp.status + ')');
         var encryptedBase64 = await resp.text();
+
+        btn.textContent = '\u23f3 解密中...';
         var decryptedBytes = await decryptData(encryptedBase64, userPassword);
 
+        btn.textContent = '\u23f3 渲染中...';
         // 用 PDF.js 渲染，加载 cmap 支持中文
         var loadingTask = pdfjsLib.getDocument({
             data: decryptedBytes,
@@ -451,7 +466,7 @@ async function viewPolicy(policyId) {
         document.getElementById('pdf-modal').classList.add('active');
     } catch (e) {
         console.error(e);
-        alert('文件加载失败，请重试');
+        alert('文件加载失败: ' + e.message);
     } finally {
         btn.disabled = false;
         btn.textContent = '\U0001f4c4 查看';
