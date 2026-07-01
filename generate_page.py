@@ -486,11 +486,14 @@ async function renderCurrentPage() {
     var container = document.getElementById('pdf-container');
     container.innerHTML = '';
     var page = await currentPdf.getPage(currentPage);
-    var scale = Math.min((window.innerWidth * 0.85) / page.getViewport({ scale: 1 }).width, 2.5);
-    var viewport = page.getViewport({ scale: scale });
+    var dpr = window.devicePixelRatio || 1;
+    var baseScale = Math.min((window.innerWidth * 0.85) / page.getViewport({ scale: 1 }).width, 2.5);
+    var viewport = page.getViewport({ scale: baseScale * dpr });
     var canvas = document.createElement('canvas');
     canvas.width = viewport.width;
     canvas.height = viewport.height;
+    canvas.style.width = (viewport.width / dpr) + 'px';
+    canvas.style.height = (viewport.height / dpr) + 'px';
     container.appendChild(canvas);
     var ctx = canvas.getContext('2d');
     await page.render({ canvasContext: ctx, viewport: viewport }).promise;
