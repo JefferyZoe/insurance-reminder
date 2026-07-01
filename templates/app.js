@@ -6,36 +6,22 @@ var currentPolicyId = '';
 
 async function decryptData(encryptedBase64, password) {
     var packed = Uint8Array.from(atob(encryptedBase64), function(c) { return c.charCodeAt(0); });
+    // 格式: salt(16) + iv(12) + ciphertext+tag(剩余)
     var salt = packed.slice(0, 16);
-    var ciphertext = packed.slice(16);
+    var iv = packed.slice(16, 28);
+    var ciphertext = packed.slice(28);
+
     var encoder = new TextEncoder();
-    var keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
-    var derivedBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: salt, iterations: 10000, hash: 'SHA-256' }, keyMaterial, 256);
-    var key = new Uint8Array(derivedBits);
-    var numBlocks = Math.ceil(ciphertext.length / 32);
-    var keyStream = new Uint8Array(numBlocks * 32);
-    var batchSize = 256;
-    for (var bStart = 0; bStart < numBlocks; bStart += batchSize) {
-        var bEnd = Math.min(bStart + batchSize, numBlocks);
-        var promises = [];
-        for (var i = bStart; i < bEnd; i++) {
-            var counterBytes = new Uint8Array(4);
-            new DataView(counterBytes.buffer).setUint32(0, i, false);
-            var blockInput = new Uint8Array(36);
-            blockInput.set(key);
-            blockInput.set(counterBytes, 32);
-            promises.push(crypto.subtle.digest('SHA-256', blockInput));
-        }
-        var results = await Promise.all(promises);
-        for (var r = 0; r < results.length; r++) {
-            keyStream.set(new Uint8Array(results[r]), (bStart + r) * 32);
-        }
-    }
-    var decrypted = new Uint8Array(ciphertext.length);
-    for (var j = 0; j < ciphertext.length; j++) {
-        decrypted[j] = ciphertext[j] ^ keyStream[j];
-    }
-    return decrypted;
+    var keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveKey']);
+    var key = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: salt, iterations: 10000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['decrypt']
+    );
+    var decrypted = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, ciphertext);
+    return new Uint8Array(decrypted);
 }
 
 async function decrypt() {

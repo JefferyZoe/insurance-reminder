@@ -52,58 +52,43 @@ def calculate_installment_info(first_insure_date_str, pay_period_years, due_date
 
 
 def encrypt_content(plaintext, password):
+    """AES-GCM 加密文本，返回 base64(salt + iv + ciphertext + tag)"""
     salt = secrets.token_bytes(16)
+    iv = secrets.token_bytes(12)
     key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 10000, dklen=32)
-    plaintext_bytes = plaintext.encode('utf-8')
-    length = len(plaintext_bytes)
-    key_stream = bytearray()
-    counter = 0
-    while len(key_stream) < length:
-        block = hashlib.sha256(key + counter.to_bytes(4, 'big')).digest()
-        key_stream.extend(block)
-        counter += 1
-    encrypted = bytearray(length)
-    for i in range(length):
-        encrypted[i] = plaintext_bytes[i] ^ key_stream[i]
-    packed = bytes(salt) + bytes(encrypted)
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    aesgcm = AESGCM(key)
+    ciphertext = aesgcm.encrypt(iv, plaintext.encode('utf-8'), None)
+    # ciphertext 包含密文 + 16字节 tag
+    packed = salt + iv + ciphertext
     return base64.b64encode(packed).decode('ascii')
 
 
 def encrypt_file_to_output(filepath, password, output_path):
+    """AES-GCM 加密文件"""
     with open(filepath, "rb") as f:
         data = f.read()
     salt = secrets.token_bytes(16)
+    iv = secrets.token_bytes(12)
     key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 10000, dklen=32)
-    length = len(data)
-    key_stream = bytearray()
-    counter = 0
-    while len(key_stream) < length:
-        block = hashlib.sha256(key + counter.to_bytes(4, 'big')).digest()
-        key_stream.extend(block)
-        counter += 1
-    encrypted = bytearray(length)
-    for i in range(length):
-        encrypted[i] = data[i] ^ key_stream[i]
-    packed = bytes(salt) + bytes(encrypted)
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    aesgcm = AESGCM(key)
+    ciphertext = aesgcm.encrypt(iv, data, None)
+    packed = salt + iv + ciphertext
     with open(output_path, "w", encoding="ascii") as f:
         f.write(base64.b64encode(packed).decode('ascii'))
     return len(data)
 
 
 def encrypt_bytes_to_file(data, password, output_path):
+    """AES-GCM 加密字节数据"""
     salt = secrets.token_bytes(16)
+    iv = secrets.token_bytes(12)
     key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 10000, dklen=32)
-    length = len(data)
-    key_stream = bytearray()
-    counter = 0
-    while len(key_stream) < length:
-        block = hashlib.sha256(key + counter.to_bytes(4, 'big')).digest()
-        key_stream.extend(block)
-        counter += 1
-    encrypted = bytearray(length)
-    for i in range(length):
-        encrypted[i] = data[i] ^ key_stream[i]
-    packed = bytes(salt) + bytes(encrypted)
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    aesgcm = AESGCM(key)
+    ciphertext = aesgcm.encrypt(iv, data, None)
+    packed = salt + iv + ciphertext
     with open(output_path, "w", encoding="ascii") as f:
         f.write(base64.b64encode(packed).decode('ascii'))
 
