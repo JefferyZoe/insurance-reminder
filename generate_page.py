@@ -435,21 +435,19 @@ async function viewPolicy(policyId) {
         var encryptedBase64 = await resp.text();
         var decryptedBytes = await decryptData(encryptedBase64, userPassword);
 
-        // 用 PDF.js 渲染
-        var loadingTask = pdfjsLib.getDocument({ data: decryptedBytes });
+        // 用 PDF.js 渲染，加载 cmap 支持中文
+        var loadingTask = pdfjsLib.getDocument({
+            data: decryptedBytes,
+            cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
+            cMapPacked: true
+        });
         currentPdf = await loadingTask.promise;
         totalPages = currentPdf.numPages;
         currentPage = 1;
 
-        var container = document.getElementById('pdf-container');
-        container.innerHTML = '';
+        document.getElementById('pdf-container').innerHTML = '';
         updatePageInfo();
-
-        // 渲染所有页面
-        for (var i = 1; i <= totalPages; i++) {
-            await renderPage(i, container);
-        }
-
+        await renderCurrentPage();
         document.getElementById('pdf-modal').classList.add('active');
     } catch (e) {
         console.error(e);
@@ -460,9 +458,11 @@ async function viewPolicy(policyId) {
     }
 }
 
-async function renderPage(pageNum, container) {
-    var page = await currentPdf.getPage(pageNum);
-    var scale = Math.min((window.innerWidth * 0.85) / page.getViewport({ scale: 1 }).width, 2);
+async function renderCurrentPage() {
+    var container = document.getElementById('pdf-container');
+    container.innerHTML = '';
+    var page = await currentPdf.getPage(currentPage);
+    var scale = Math.min((window.innerWidth * 0.85) / page.getViewport({ scale: 1 }).width, 2.5);
     var viewport = page.getViewport({ scale: scale });
     var canvas = document.createElement('canvas');
     canvas.width = viewport.width;
@@ -470,6 +470,7 @@ async function renderPage(pageNum, container) {
     container.appendChild(canvas);
     var ctx = canvas.getContext('2d');
     await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+    updatePageInfo();
 }
 
 function updatePageInfo() {
@@ -480,21 +481,16 @@ function updatePageInfo() {
 function prevPage() {
     if (currentPage <= 1) return;
     currentPage--;
-    scrollToPage(currentPage);
+    renderCurrentPage();
 }
 
 function nextPage() {
     if (currentPage >= totalPages) return;
     currentPage++;
-    scrollToPage(currentPage);
+    renderCurrentPage();
 }
 
 function scrollToPage(num) {
-    var container = document.getElementById('pdf-container');
-    var canvases = container.querySelectorAll('canvas');
-    if (canvases[num - 1]) {
-        canvases[num - 1].scrollIntoView({ behavior: 'smooth' });
-    }
     updatePageInfo();
 }
 
