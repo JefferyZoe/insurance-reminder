@@ -142,17 +142,49 @@ def encrypt_content(plaintext, password):
 def get_policy_year_for_date(first_insure_date_str, target_year):
     """计算某个目标年份对应的保单年度"""
     first_date = datetime.datetime.strptime(first_insure_date_str, "%Y-%m-%d").date()
-    # 目标年的周年日
-    try:
-        anniversary = first_date.replace(year=target_year)
-    except ValueError:
-        anniversary = first_date.replace(year=target_year, day=28)
-    # 假设以年末视角看：该年周年日已过，算当年的年度
     return target_year - first_date.year + 1
 
 
+def calc_premium_paid(first_insure_date_str, pay_period_years, premium, target_year, today):
+    """
+    计算截至目标年份的已交保费。
+    - 过去/今年：按今天实际日期算（今天之前过了几个缴费日）
+    - 未来年份：按截至该年年末算（保费 × 截至年末的期数）
+    """
+    first_date = datetime.datetime.strptime(first_insure_date_str, "%Y-%m-%d").date()
+    premium = int(premium)
+
+    if target_year <= today.year:
+        # 过去或今年：按实际日期
+        paid_periods = 0
+        for period in range(pay_period_years):
+            try:
+                pay_date = first_date.replace(year=first_date.year + period)
+            except ValueError:
+                pay_date = first_date.replace(year=first_date.year + period, day=28)
+            if pay_date <= today:
+                paid_periods += 1
+            else:
+                break
+    else:
+        # 未来年份：截至该年年末
+        year_end = datetime.date(target_year, 12, 31)
+        paid_periods = 0
+        for period in range(pay_period_years):
+            try:
+                pay_date = first_date.replace(year=first_date.year + period)
+            except ValueError:
+                pay_date = first_date.replace(year=first_date.year + period, day=28)
+            if pay_date <= year_end:
+                paid_periods += 1
+            else:
+                break
+
+    return paid_periods * premium
+
+
 def build_cash_value_html(data, cash_values):
-    """构建现金价值汇总 HTML（支持年份筛选）"""
+    """构建现金价值汇总 HTML（支持年份筛选，含未来年份）"""
     if not cash_values:
         return ""
 
@@ -160,19 +192,27 @@ def build_cash_value_html(data, cash_values):
     current_year = today.year
     policies = data.get("policies", [])
 
-    # 计算可选年份范围：从最早保单的首保年份到今年
+    # 计算可选年份范围：从最早首保年到 Excel 中有数据的最远年份
     first_years = []
+    max_data_year = current_year
     for p in policies:
-        if p["policy_id"] in cash_values:
-            fy = datetime.datetime.strptime(p["first_insure_date"], "%Y-%m-%d").year
-            first_years.append(fy)
+        pid = p["policy_id"]
+        if pid not in cash_values:
+            continue
+        fy = datetime.datetime.strptime(p["first_insure_date"], "%Y-%m-%d").year
+        first_years.append(fy)
+        # 找该保单数据的最大年度，换算成日历年
+        if cash_values[pid]:
+            max_policy_year = max(cash_values[pid].keys())
+            max_calendar_year = fy + max_policy_year - 1
+            max_data_year = max(max_data_year, max_calendar_year)
+
     if not first_years:
         return ""
     min_year = min(first_years)
-    year_range = list(range(min_year, current_year + 1))
+    year_range = list(range(min_year, max_data_year + 1))
 
     # 预计算每个年份的数据
-    # 格式: {year: {total_cv, total_premium_paid, details: [{name, user, policy_year, cv, premium}]}}
     all_year_data = {}
     for yr in year_range:
         total_cv = 0
@@ -183,26 +223,15 @@ def build_cash_value_html(data, cash_values):
             if pid not in cash_values:
                 continue
             first_date = datetime.datetime.strptime(p["first_insure_date"], "%Y-%m-%d").date()
-            # 该保单在目标年份的保单年度
             policy_year = yr - first_date.year + 1
             if policy_year < 1:
-                continue  # 该年份保单还没开始
+                continue
             cv = cash_values[pid].get(policy_year)
             if cv is None:
                 continue
-            # 已交保费：截止今天，已经过了几个缴费日
-            first_date = datetime.datetime.strptime(p["first_insure_date"], "%Y-%m-%d").date()
-            paid_periods = 0
-            for period in range(p["pay_period_years"]):
-                try:
-                    pay_date = first_date.replace(year=first_date.year + period)
-                except ValueError:
-                    pay_date = first_date.replace(year=first_date.year + period, day=28)
-                if pay_date <= today:
-                    paid_periods += 1
-                else:
-                    break
-            premium_paid = paid_periods * int(p["premium"])
+            premium_paid = calc_premium_paid(
+                p["first_insure_date"], p["pay_period_years"], p["premium"], yr, today
+            )
             total_cv += cv
             total_premium += premium_paid
             details.append({
@@ -222,12 +251,27 @@ def build_cash_value_html(data, cash_values):
     if not all_year_data:
         return ""
 
-    # 年份筛选按钮
-    year_tags = ""
-    for yr in reversed(year_range):
+    # 年份快捷按钮：最近5年 + 每隔5年的未来节点
+    display_years = []
+    for yr in range(current_year, max(min_year - 1, current_year - 5), -1):
         if yr in all_year_data:
-            active = "active" if yr == current_year else ""
-            year_tags += f"<span class='monthly-tag {active}' onclick='filterCashYear({yr}, event)'>{yr}</span>"
+            display_years.append(yr)
+    # 未来年份：每5年一个
+    for yr in range(current_year + 5, max_data_year + 1, 5):
+        if yr in all_year_data:
+            display_years.append(yr)
+    # 最后一年
+    if max_data_year > current_year and max_data_year not in display_years and max_data_year in all_year_data:
+        display_years.append(max_data_year)
+    display_years.sort(reverse=True)
+
+    year_tags = ""
+    for yr in display_years:
+        active = "active" if yr == current_year else ""
+        year_tags += f"<span class='monthly-tag {active}' onclick='filterCashYear({yr}, event)'>{yr}</span>"
+
+    # 自定义年份输入
+    year_input = f'<input type="number" class="year-input" id="custom-year-input" min="{min_year}" max="{max_data_year}" placeholder="输入年份" onchange="filterCashYear(parseInt(this.value), event)">'
 
     # 为每个年份生成隐藏的数据 div
     year_divs = ""
@@ -249,7 +293,7 @@ def build_cash_value_html(data, cash_values):
 </div>"""
 
     html = f"""<div class="summary-section-title">保单现金价值</div>
-<div class="monthly-detail"><span class="monthly-title">选择年份：</span><div class="monthly-tags">{year_tags}</div></div>
+<div class="monthly-detail"><span class="monthly-title">选择年份：</span><div class="monthly-tags">{year_tags}</div>{year_input}</div>
 {year_divs}"""
     return html
 

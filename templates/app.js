@@ -45,14 +45,18 @@ function filterMonth(month, e) {
 }
 
 function filterCashYear(year, e) {
-    e.preventDefault();
-    e.stopPropagation();
-    // 切换年份按钮 active 状态（只在现金价值区域）
-    var container = e.target.closest('.summary-section-title, .monthly-detail').parentElement || document;
-    var tags = e.target.parentElement.querySelectorAll('.monthly-tag');
-    tags.forEach(function(tag) { tag.classList.remove('active'); });
-    e.target.classList.add('active');
-    // 切换年份数据块
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    if (!year || isNaN(year)) return;
+    // 切换按钮 active
+    var tags = document.querySelectorAll('.cash-year-block');
+    var parent = tags[0] ? tags[0].parentElement : null;
+    if (parent) {
+        parent.querySelectorAll('.monthly-tag').forEach(function(tag) { tag.classList.remove('active'); });
+        if (e && e.target && e.target.classList.contains('monthly-tag')) {
+            e.target.classList.add('active');
+        }
+    }
+    // 切换数据块
     document.querySelectorAll('.cash-year-block').forEach(function(block) {
         block.style.display = (parseInt(block.getAttribute('data-cash-year')) === year) ? '' : 'none';
     });

@@ -43,6 +43,7 @@ tr:hover { background: #f8f9fa; }
 .cash-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
 .cash-table th { background: #f0f4ff; padding: 6px 8px; text-align: left; font-size: 11px; }
 .cash-table td { padding: 6px 8px; border-bottom: 1px solid #eee; }
+.year-input { width: 70px; padding: 4px 8px; border: 1px solid #ddd; border-radius: 14px; font-size: 12px; text-align: center; margin-left: 6px; }
 .login-wrapper { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
 .login-box { background: white; border-radius: 16px; padding: 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); text-align: center; max-width: 360px; width: 100%; }
 .login-box h2 { margin-bottom: 8px; color: #2c3e50; }
