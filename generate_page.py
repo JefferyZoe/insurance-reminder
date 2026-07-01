@@ -486,17 +486,57 @@ async function renderCurrentPage() {
     var container = document.getElementById('pdf-container');
     container.innerHTML = '';
     var page = await currentPdf.getPage(currentPage);
+    var baseScale = Math.min((window.innerWidth * 0.85) / page.getViewport({ scale: 1 }).width, 2);
+    var viewport = page.getViewport({ scale: baseScale });
+
+    // 使用 canvas + 文字层叠加，确保清晰度
     var dpr = window.devicePixelRatio || 1;
-    var baseScale = Math.min((window.innerWidth * 0.85) / page.getViewport({ scale: 1 }).width, 2.5);
-    var viewport = page.getViewport({ scale: baseScale * dpr });
+    var scaledViewport = page.getViewport({ scale: baseScale * dpr });
+
+    var wrapper = document.createElement('div');
+    wrapper.style.position = 'relative';
+    wrapper.style.width = viewport.width + 'px';
+    wrapper.style.height = viewport.height + 'px';
+
     var canvas = document.createElement('canvas');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    canvas.style.width = (viewport.width / dpr) + 'px';
-    canvas.style.height = (viewport.height / dpr) + 'px';
-    container.appendChild(canvas);
+    canvas.width = scaledViewport.width;
+    canvas.height = scaledViewport.height;
+    canvas.style.width = viewport.width + 'px';
+    canvas.style.height = viewport.height + 'px';
+    wrapper.appendChild(canvas);
+
+    // 文字层（可选中、清晰）
+    var textDiv = document.createElement('div');
+    textDiv.style.position = 'absolute';
+    textDiv.style.top = '0';
+    textDiv.style.left = '0';
+    textDiv.style.width = viewport.width + 'px';
+    textDiv.style.height = viewport.height + 'px';
+    textDiv.style.overflow = 'hidden';
+    textDiv.style.opacity = '0.3';
+    textDiv.style.lineHeight = '1';
+    wrapper.appendChild(textDiv);
+
+    container.appendChild(wrapper);
+
     var ctx = canvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+    await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
+
+    // 渲染文字层
+    var textContent = await page.getTextContent();
+    textContent.items.forEach(function(item) {
+        var tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
+        var span = document.createElement('span');
+        span.textContent = item.str;
+        span.style.position = 'absolute';
+        span.style.left = tx[4] + 'px';
+        span.style.top = (viewport.height - tx[5]) + 'px';
+        span.style.fontSize = Math.abs(tx[0]) + 'px';
+        span.style.fontFamily = 'sans-serif';
+        span.style.transformOrigin = 'left bottom';
+        textDiv.appendChild(span);
+    });
+
     updatePageInfo();
 }
 
