@@ -190,9 +190,18 @@ def build_cash_value_html(data, cash_values):
             cv = cash_values[pid].get(policy_year)
             if cv is None:
                 continue
-            # 已交保费 = 已缴期数 * 每期保费
-            # 保单年度即为已缴期数（因为第1年度就交了第1期）
-            paid_periods = min(policy_year, p["pay_period_years"])
+            # 已交保费：截止今天，已经过了几个缴费日
+            first_date = datetime.datetime.strptime(p["first_insure_date"], "%Y-%m-%d").date()
+            paid_periods = 0
+            for period in range(p["pay_period_years"]):
+                try:
+                    pay_date = first_date.replace(year=first_date.year + period)
+                except ValueError:
+                    pay_date = first_date.replace(year=first_date.year + period, day=28)
+                if pay_date <= today:
+                    paid_periods += 1
+                else:
+                    break
             premium_paid = paid_periods * int(p["premium"])
             total_cv += cv
             total_premium += premium_paid
