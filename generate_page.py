@@ -229,6 +229,15 @@ def build_cash_value_html(data, cash_values):
             cv = cash_values[pid].get(policy_year)
             if cv is None:
                 continue
+            # 特殊加成规则
+            if pid == "POL004":
+                if policy_year == 5:
+                    cv += 10000
+                elif policy_year > 5:
+                    cv += 3000 * (policy_year - 5)
+            elif pid == "POL006":
+                if policy_year >= 6:
+                    cv += (policy_year - 5) * 1000
             premium_paid = calc_premium_paid(
                 p["first_insure_date"], p["pay_period_years"], p["premium"], yr, today
             )
@@ -285,7 +294,7 @@ def build_cash_value_html(data, cash_values):
 </tr></thead><tbody>{rows}</tbody></table>
 </div>"""
 
-    html = f"""<div class="summary-section-title">保单现金价值</div>
+    html = f"""<div class="summary-section-title">保单现金价值 <span style="font-size:11px;color:#999;font-weight:normal;">POL004第5年+10000后每年+3000；POL006第6年起每年+1000</span></div>
 <div class="monthly-detail"><span class="monthly-title">选择年份：</span><div class="monthly-tags">{year_tags}</div>{year_input}</div>
 {year_divs}"""
     return html
