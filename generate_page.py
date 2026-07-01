@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 生成保单详情 HTML 页面（带密码保护），部署到 GitHub Pages。
-PDF 文件单独加密存储为独立文件，构建时转为图片。
+保单文件通过百度云链接查看/下载。
 """
 import json
 import os
@@ -17,7 +17,6 @@ OUTPUT_FILE = os.path.join(OUTPUT_DIR, "index.html")
 TEMPLATES_DIR = os.path.join(SCRIPT_DIR, "templates")
 
 PAGE_PASSWORD = os.environ.get('PAGE_PASSWORD', '123456')
-POLICY_FILES_DIR = os.environ.get('POLICY_FILES_DIR', os.path.join(SCRIPT_DIR, "policy_files"))
 
 
 def load_config():
@@ -59,69 +58,11 @@ def encrypt_content(plaintext, password):
     from cryptography.hazmat.primitives.ciphers.aead import AESGCM
     aesgcm = AESGCM(key)
     ciphertext = aesgcm.encrypt(iv, plaintext.encode('utf-8'), None)
-    # ciphertext 包含密文 + 16字节 tag
     packed = salt + iv + ciphertext
     return base64.b64encode(packed).decode('ascii')
 
 
-def encrypt_file_to_output(filepath, password, output_path):
-    """AES-GCM 加密文件"""
-    with open(filepath, "rb") as f:
-        data = f.read()
-    salt = secrets.token_bytes(16)
-    iv = secrets.token_bytes(12)
-    key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 10000, dklen=32)
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    aesgcm = AESGCM(key)
-    ciphertext = aesgcm.encrypt(iv, data, None)
-    packed = salt + iv + ciphertext
-    with open(output_path, "w", encoding="ascii") as f:
-        f.write(base64.b64encode(packed).decode('ascii'))
-    return len(data)
-
-
-def encrypt_bytes_to_file(data, password, output_path):
-    """AES-GCM 加密字节数据"""
-    salt = secrets.token_bytes(16)
-    iv = secrets.token_bytes(12)
-    key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 10000, dklen=32)
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-    aesgcm = AESGCM(key)
-    ciphertext = aesgcm.encrypt(iv, data, None)
-    packed = salt + iv + ciphertext
-    with open(output_path, "w", encoding="ascii") as f:
-        f.write(base64.b64encode(packed).decode('ascii'))
-
-
-def convert_pdf_to_images(filepath, pdf_password=None):
-    """将 PDF 转换为 JPEG 图片列表，返回 [(page_num, jpeg_bytes), ...]"""
-    try:
-        import fitz
-        with open(filepath, "rb") as f:
-            pdf_data = f.read()
-        doc = fitz.open(stream=pdf_data, filetype="pdf")
-        if doc.is_encrypted:
-            if pdf_password:
-                if not doc.authenticate(pdf_password):
-                    if not doc.authenticate(""):
-                        doc.close()
-                        return []
-            else:
-                if not doc.authenticate(""):
-                    doc.close()
-                    return []
-        result = []
-        for i, page in enumerate(doc):
-            mat = fitz.Matrix(2, 2)
-            pix = page.get_pixmap(matrix=mat)
-            result.append((i + 1, pix.tobytes("jpeg")))
-        doc.close()
-        return result
-    except Exception:
-        return []
-
-
-def build_content_html(data, available_files):
+def build_content_html(data):
     today = datetime.date.today()
     policies = data.get("policies", [])
 
@@ -213,10 +154,9 @@ def build_content_html(data, available_files):
             row_class = "row-urgent"
         elif item["status_class"] == "status-warning":
             row_class = "row-warning"
-        has_file = p["policy_id"] in available_files
-        if has_file:
-            page_count = available_files[p["policy_id"]]
-            view_btn = f'<div class="btn-group"><button class="view-btn" onclick="viewPolicy(\'{p["policy_id"]}\', {page_count})">查看</button><button class="dl-btn" onclick="downloadPolicy(\'{p["policy_id"]}\')">下载</button></div>'
+        cloud_url = p.get("cloud_url", "")
+        if cloud_url:
+            view_btn = f'<a class="view-btn" href="{cloud_url}" target="_blank">查看</a>'
         else:
             view_btn = '<span class="no-file">暂无</span>'
         rows += f"""<tr data-month="{due_month}" class="{row_class}">
@@ -251,47 +191,14 @@ def build_content_html(data, available_files):
 <th>被保人</th><th>保单名称</th><th>保险公司</th><th>保费</th><th>已交保费</th><th>总保费</th><th>首保日期</th><th>下次续费</th><th>缴费进度</th><th>剩余天数</th><th>状态</th><th>保单详情</th>
 </tr></thead><tbody>{rows}</tbody></table>
 </div>
-<div id="pdf-modal" class="modal" onclick="closeModal(event)">
-<div class="modal-content" onclick="event.stopPropagation()">
-<div class="modal-header"><span class="modal-title">保单文件</span>
-<div class="modal-nav"><button class="nav-btn" onclick="prevPage()">◀</button><span id="page-info">1/1</span><button class="nav-btn" onclick="nextPage()">▶</button></div>
-<button class="modal-close" onclick="closePdfModal()">✕</button></div>
-<div class="modal-body" id="pdf-container"></div>
-</div></div>
 <div class="footer">自动生成 · 数据来源于保单管理系统</div>"""
     return content
 
 
 def generate_html(data, password):
-    policies = data.get("policies", [])
-
-    # 加密 PDF 文件为独立文件
-    pdf_dir = os.path.join(OUTPUT_DIR, "pdfs")
-    os.makedirs(pdf_dir, exist_ok=True)
-    available_files = {}
-    for p in policies:
-        policy_file = p.get("policy_file", "")
-        if not policy_file:
-            continue
-        filepath = os.path.join(POLICY_FILES_DIR, policy_file)
-        if not os.path.exists(filepath):
-            continue
-        pdf_pwd = p.get("pdf_password", "")
-        images = convert_pdf_to_images(filepath, pdf_pwd)
-        if not images:
-            continue
-        page_count = len(images)
-        for page_num, jpeg_bytes in images:
-            output_path = os.path.join(pdf_dir, f"{p['policy_id']}_p{page_num}.enc")
-            encrypt_bytes_to_file(jpeg_bytes, password, output_path)
-        # 保存加密原始 PDF 用于下载
-        encrypt_file_to_output(filepath, password, os.path.join(pdf_dir, f"{p['policy_id']}.enc"))
-        available_files[p["policy_id"]] = page_count
-
-    content_html = build_content_html(data, available_files)
+    content_html = build_content_html(data)
     encrypted_data = encrypt_content(content_html, password)
 
-    # 从模板文件加载 CSS 和 JS
     css = load_template("style.css")
     js = load_template("app.js").replace("__ENCRYPTED_DATA__", encrypted_data)
 
