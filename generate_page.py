@@ -251,18 +251,11 @@ def build_cash_value_html(data, cash_values):
     if not all_year_data:
         return ""
 
-    # 年份快捷按钮：最近5年 + 每隔5年的未来节点
+    # 年份快捷按钮：当年前后5年
     display_years = []
-    for yr in range(current_year, max(min_year - 1, current_year - 5), -1):
+    for yr in range(current_year - 5, current_year + 6):
         if yr in all_year_data:
             display_years.append(yr)
-    # 未来年份：每5年一个
-    for yr in range(current_year + 5, max_data_year + 1, 5):
-        if yr in all_year_data:
-            display_years.append(yr)
-    # 最后一年
-    if max_data_year > current_year and max_data_year not in display_years and max_data_year in all_year_data:
-        display_years.append(max_data_year)
     display_years.sort(reverse=True)
 
     year_tags = ""
