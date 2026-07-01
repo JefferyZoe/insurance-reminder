@@ -214,7 +214,7 @@ def build_content_html(data, available_files, pdf_passwords):
         has_file = p["policy_id"] in available_files
         if has_file:
             page_count = available_files[p["policy_id"]]
-            view_btn = f'<button class="view-btn" onclick="viewPolicy(\'{p["policy_id"]}\', {page_count})">📄 查看</button>'
+            view_btn = f'<div class="btn-group"><button class="view-btn" onclick="viewPolicy(\'{p["policy_id"]}\', {page_count})">查看</button><button class="dl-btn" onclick="downloadPolicy(\'{p["policy_id"]}\')">下载</button></div>'
         else:
             view_btn = '<span class="no-file">暂无</span>'
         rows += f"""<tr data-month="{due_month}" class="{row_class}">
@@ -374,12 +374,13 @@ tr:hover { background: #f8f9fa; }
 .row-urgent { background: #fff0f0; }
 .row-warning { background: #fffbf0; }
 .footer { text-align: center; padding: 12px 20px; color: #999; font-size: 12px; border-top: 1px solid #eee; }
-.view-btn { background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.view-btn { background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; white-space: nowrap; }
 .view-btn:hover { opacity: 0.85; }
 .view-btn:disabled { opacity: 0.5; cursor: wait; }
-.dl-btn { background: linear-gradient(135deg, #27ae60, #2ecc71); color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.dl-btn { background: linear-gradient(135deg, #27ae60, #2ecc71); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; white-space: nowrap; }
 .dl-btn:hover { opacity: 0.85; }
 .dl-btn:disabled { opacity: 0.5; cursor: wait; }
+.btn-group { display: inline-flex; gap: 3px; }
 .no-file { color: #bbb; font-size: 12px; }
 .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 9999; align-items: center; justify-content: center; }
 .modal.active { display: flex; }
