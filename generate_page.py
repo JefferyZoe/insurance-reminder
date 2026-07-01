@@ -271,7 +271,7 @@ def generate_html(data, password):
     html += '<meta charset="UTF-8">\n'
     html += '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
     html += '<title>保单续费详情</title>\n'
-    html += '<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>\n'
+    html += '<script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>\n'
     html += '<style>\n'
     html += CSS_CONTENT
     html += '\n</style>\n</head>\n<body>\n'
@@ -382,7 +382,7 @@ var currentPdf = null;
 var currentPage = 1;
 var totalPages = 0;
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 
 async function decryptData(encryptedBase64, password) {
     var packed = Uint8Array.from(atob(encryptedBase64), function(c) { return c.charCodeAt(0); });
@@ -457,8 +457,9 @@ async function viewPolicy(policyId, pdfPwd) {
         // 用 PDF.js 渲染，加载 cmap 支持中文
         var docParams = {
             data: decryptedBytes,
-            cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
-            cMapPacked: true
+            cMapUrl: 'https://unpkg.com/pdfjs-dist@3.11.174/cmaps/',
+            cMapPacked: true,
+            standardFontDataUrl: 'https://unpkg.com/pdfjs-dist@3.11.174/standard_fonts/'
         };
         if (pdfPwd) {
             docParams.password = pdfPwd;
