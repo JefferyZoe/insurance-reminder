@@ -84,6 +84,41 @@ def encrypt_file_to_output(filepath, password, output_path):
     return len(data)
 
 
+def convert_pdf_to_images(filepath, pdf_password=None):
+    """将 PDF 转换为 JPEG 图片列表（每页一张），返回 [(page_num, jpeg_bytes), ...]"""
+    try:
+        from pdf2image import convert_from_path
+        kwargs = {'dpi': 200, 'fmt': 'jpeg'}
+        if pdf_password:
+            kwargs['userpw'] = pdf_password
+        images = convert_from_path(filepath, **kwargs)
+        result = []
+        for i, img in enumerate(images):
+            import io
+            buf = io.BytesIO()
+            img.save(buf, format='JPEG', quality=85)
+            result.append((i + 1, buf.getvalue()))
+        return result
+    except ImportError:
+        print("  ⚠️  pdf2image 未安装，尝试使用 PyMuPDF...")
+        try:
+            import fitz  # PyMuPDF
+            doc = fitz.open(filepath)
+            if pdf_password and doc.is_encrypted:
+                doc.authenticate(pdf_password)
+            result = []
+            for i, page in enumerate(doc):
+                # 2x 缩放确保清晰
+                mat = fitz.Matrix(2, 2)
+                pix = page.get_pixmap(matrix=mat)
+                result.append((i + 1, pix.tobytes("jpeg")))
+            doc.close()
+            return result
+        except ImportError:
+            print("  ❌ 需要安装 pdf2image 或 PyMuPDF")
+            return []
+
+
 def build_content_html(data, available_files, pdf_passwords):
     today = datetime.date.today()
     policies = data.get("policies", [])
@@ -178,8 +213,8 @@ def build_content_html(data, available_files, pdf_passwords):
             row_class = "row-warning"
         has_file = p["policy_id"] in available_files
         if has_file:
-            pdf_pwd = pdf_passwords.get(p["policy_id"], "")
-            view_btn = f'<button class="view-btn" onclick="viewPolicy(\'{p["policy_id"]}\', \'{pdf_pwd}\')">📄 查看</button>'
+            page_count = available_files[p["policy_id"]]
+            view_btn = f'<button class="view-btn" onclick="viewPolicy(\'{p["policy_id"]}\', {page_count})">📄 查看</button>'
         else:
             view_btn = '<span class="no-file">暂无</span>'
         rows += f"""<tr data-month="{due_month}" class="{row_class}">
@@ -257,12 +292,35 @@ def generate_html(data, password):
         if not os.path.exists(filepath):
             print(f"  \u26a0\ufe0f  保单文件不存在: {filepath}")
             continue
-        output_path = os.path.join(pdf_dir, f"{p['policy_id']}.enc")
-        file_size = encrypt_file_to_output(filepath, password, output_path)
-        available_files[p["policy_id"]] = True
-        if p.get("pdf_password"):
-            pdf_passwords[p["policy_id"]] = p["pdf_password"]
-        print(f"  \U0001f4c4 已加密: {policy_file} ({file_size // 1024}KB)")
+        pdf_pwd = p.get("pdf_password", "")
+        # 将 PDF 转为图片，每页加密存储
+        images = convert_pdf_to_images(filepath, pdf_pwd)
+        if not images:
+            print(f"  \u26a0\ufe0f  PDF 转图片失败: {policy_file}")
+            continue
+        page_count = len(images)
+        for page_num, jpeg_bytes in images:
+            output_path = os.path.join(pdf_dir, f"{p['policy_id']}_p{page_num}.enc")
+            # 加密图片数据
+            salt = secrets.token_bytes(16)
+            key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 10000, dklen=32)
+            length = len(jpeg_bytes)
+            key_stream = bytearray()
+            counter = 0
+            while len(key_stream) < length:
+                block = hashlib.sha256(key + counter.to_bytes(4, 'big')).digest()
+                key_stream.extend(block)
+                counter += 1
+            encrypted = bytearray(length)
+            for i in range(length):
+                encrypted[i] = jpeg_bytes[i] ^ key_stream[i]
+            packed = bytes(salt) + bytes(encrypted)
+            with open(output_path, "w", encoding="ascii") as f:
+                f.write(base64.b64encode(packed).decode('ascii'))
+        available_files[p["policy_id"]] = page_count
+        if pdf_pwd:
+            pdf_passwords[p["policy_id"]] = pdf_pwd
+        print(f"  \U0001f4c4 已转换: {policy_file} ({page_count}页)")
 
     content_html = build_content_html(data, available_files, pdf_passwords)
     encrypted_data = encrypt_content(content_html, password)
@@ -271,7 +329,6 @@ def generate_html(data, password):
     html += '<meta charset="UTF-8">\n'
     html += '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
     html += '<title>保单续费详情</title>\n'
-    html += '<script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>\n'
     html += '<style>\n'
     html += CSS_CONTENT
     html += '\n</style>\n</head>\n<body>\n'
@@ -378,11 +435,9 @@ BODY_TEMPLATE = """
 <script>
 var ENCRYPTED_DATA = "__ENCRYPTED_DATA__";
 var userPassword = '';
-var currentPdf = null;
+var currentPages = 0;
 var currentPage = 1;
-var totalPages = 0;
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+var currentPolicyId = '';
 
 async function decryptData(encryptedBase64, password) {
     var packed = Uint8Array.from(atob(encryptedBase64), function(c) { return c.charCodeAt(0); });
@@ -394,8 +449,6 @@ async function decryptData(encryptedBase64, password) {
     var key = new Uint8Array(derivedBits);
     var numBlocks = Math.ceil(ciphertext.length / 32);
     var keyStream = new Uint8Array(numBlocks * 32);
-
-    // 批量并行计算 SHA-256 blocks（每批 256 个）
     var batchSize = 256;
     for (var bStart = 0; bStart < numBlocks; bStart += batchSize) {
         var bEnd = Math.min(bStart + batchSize, numBlocks);
@@ -413,7 +466,6 @@ async function decryptData(encryptedBase64, password) {
             keyStream.set(new Uint8Array(results[r]), (bStart + r) * 32);
         }
     }
-
     var decrypted = new Uint8Array(ciphertext.length);
     for (var j = 0; j < ciphertext.length; j++) {
         decrypted[j] = ciphertext[j] ^ keyStream[j];
@@ -440,35 +492,14 @@ async function decrypt() {
     }
 }
 
-async function viewPolicy(policyId, pdfPwd) {
+async function viewPolicy(policyId, pages) {
     var btn = event.target;
     btn.disabled = true;
     btn.textContent = '\u23f3 加载中...';
     try {
-        btn.textContent = '\u23f3 下载中...';
-        var resp = await fetch('pdfs/' + policyId + '.enc');
-        if (!resp.ok) throw new Error('文件不存在(HTTP ' + resp.status + ')');
-        var encryptedBase64 = await resp.text();
-
-        btn.textContent = '\u23f3 解密中...';
-        var decryptedBytes = await decryptData(encryptedBase64, userPassword);
-
-        btn.textContent = '\u23f3 渲染中...';
-        // 用 PDF.js 渲染，加载 cmap 支持中文
-        var docParams = {
-            data: decryptedBytes,
-            cMapUrl: 'https://unpkg.com/pdfjs-dist@3.11.174/cmaps/',
-            cMapPacked: true,
-            standardFontDataUrl: 'https://unpkg.com/pdfjs-dist@3.11.174/standard_fonts/'
-        };
-        if (pdfPwd) {
-            docParams.password = pdfPwd;
-        }
-        var loadingTask = pdfjsLib.getDocument(docParams);
-        currentPdf = await loadingTask.promise;
-        totalPages = currentPdf.numPages;
+        currentPolicyId = policyId;
+        currentPages = pages;
         currentPage = 1;
-
         document.getElementById('pdf-container').innerHTML = '';
         updatePageInfo();
         await renderCurrentPage();
@@ -484,65 +515,27 @@ async function viewPolicy(policyId, pdfPwd) {
 
 async function renderCurrentPage() {
     var container = document.getElementById('pdf-container');
-    container.innerHTML = '';
-    var page = await currentPdf.getPage(currentPage);
-    var baseScale = Math.min((window.innerWidth * 0.85) / page.getViewport({ scale: 1 }).width, 2);
-    var viewport = page.getViewport({ scale: baseScale });
-
-    // 使用 canvas + 文字层叠加，确保清晰度
-    var dpr = window.devicePixelRatio || 1;
-    var scaledViewport = page.getViewport({ scale: baseScale * dpr });
-
-    var wrapper = document.createElement('div');
-    wrapper.style.position = 'relative';
-    wrapper.style.width = viewport.width + 'px';
-    wrapper.style.height = viewport.height + 'px';
-
-    var canvas = document.createElement('canvas');
-    canvas.width = scaledViewport.width;
-    canvas.height = scaledViewport.height;
-    canvas.style.width = viewport.width + 'px';
-    canvas.style.height = viewport.height + 'px';
-    wrapper.appendChild(canvas);
-
-    // 文字层（可选中、清晰）
-    var textDiv = document.createElement('div');
-    textDiv.style.position = 'absolute';
-    textDiv.style.top = '0';
-    textDiv.style.left = '0';
-    textDiv.style.width = viewport.width + 'px';
-    textDiv.style.height = viewport.height + 'px';
-    textDiv.style.overflow = 'hidden';
-    textDiv.style.opacity = '0.3';
-    textDiv.style.lineHeight = '1';
-    wrapper.appendChild(textDiv);
-
-    container.appendChild(wrapper);
-
-    var ctx = canvas.getContext('2d');
-    await page.render({ canvasContext: ctx, viewport: scaledViewport }).promise;
-
-    // 渲染文字层
-    var textContent = await page.getTextContent();
-    textContent.items.forEach(function(item) {
-        var tx = pdfjsLib.Util.transform(viewport.transform, item.transform);
-        var span = document.createElement('span');
-        span.textContent = item.str;
-        span.style.position = 'absolute';
-        span.style.left = tx[4] + 'px';
-        span.style.top = (viewport.height - tx[5]) + 'px';
-        span.style.fontSize = Math.abs(tx[0]) + 'px';
-        span.style.fontFamily = 'sans-serif';
-        span.style.transformOrigin = 'left bottom';
-        textDiv.appendChild(span);
-    });
-
+    container.innerHTML = '<p style="color:#fff;">加载中...</p>';
+    var url = 'pdfs/' + currentPolicyId + '_p' + currentPage + '.enc';
+    var resp = await fetch(url);
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    var encryptedBase64 = await resp.text();
+    var decryptedBytes = await decryptData(encryptedBase64, userPassword);
+    // 转为 base64 图片
+    var binary = '';
+    var chunkSize = 8192;
+    for (var i = 0; i < decryptedBytes.length; i += chunkSize) {
+        var chunk = decryptedBytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode.apply(null, chunk);
+    }
+    var imgBase64 = btoa(binary);
+    container.innerHTML = '<img src="data:image/jpeg;base64,' + imgBase64 + '" style="max-width:100%;height:auto;">';
     updatePageInfo();
 }
 
 function updatePageInfo() {
     var el = document.getElementById('page-info');
-    if (el) el.textContent = currentPage + '/' + totalPages;
+    if (el) el.textContent = currentPage + '/' + currentPages;
 }
 
 function prevPage() {
@@ -552,19 +545,14 @@ function prevPage() {
 }
 
 function nextPage() {
-    if (currentPage >= totalPages) return;
+    if (currentPage >= currentPages) return;
     currentPage++;
     renderCurrentPage();
-}
-
-function scrollToPage(num) {
-    updatePageInfo();
 }
 
 function closePdfModal() {
     document.getElementById('pdf-modal').classList.remove('active');
     document.getElementById('pdf-container').innerHTML = '';
-    currentPdf = null;
 }
 
 function closeModal(e) {
