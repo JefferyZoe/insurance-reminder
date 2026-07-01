@@ -214,7 +214,7 @@ def build_content_html(data, available_files, pdf_passwords):
         has_file = p["policy_id"] in available_files
         if has_file:
             page_count = available_files[p["policy_id"]]
-            view_btn = f'<button class="view-btn" onclick="viewPolicy(\'{p["policy_id"]}\', {page_count})">📄 查看</button> <button class="dl-btn" onclick="downloadPolicy(\'{p["policy_id"]}\')">⬇ 下载</button>'
+            view_btn = f'<button class="view-btn" onclick="viewPolicy(\'{p["policy_id"]}\', {page_count})">📄 查看</button>'
         else:
             view_btn = '<span class="no-file">暂无</span>'
         rows += f"""<tr data-month="{due_month}" class="{row_class}">
