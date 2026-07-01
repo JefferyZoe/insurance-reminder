@@ -10,3 +10,7 @@ policy_files/
 # Python
 __pycache__/
 *.pyc
+
+# Excel 数据文件（存在私有仓库）
+insurance.xlsx
+create_excel.py
