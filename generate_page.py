@@ -217,7 +217,7 @@ def build_content_html(data, available_files, pdf_passwords):
         has_file = p["policy_id"] in available_files
         if has_file:
             page_count = available_files[p["policy_id"]]
-            view_btn = f'<button class="view-btn" onclick="viewPolicy(\'{p["policy_id"]}\', {page_count})">📄 查看</button>'
+            view_btn = f'<button class="view-btn" onclick="viewPolicy(\'{p["policy_id"]}\', {page_count})">📄 查看</button> <button class="dl-btn" onclick="downloadPolicy(\'{p["policy_id"]}\')">⬇ 下载</button>'
         else:
             view_btn = '<span class="no-file">暂无</span>'
         rows += f"""<tr data-month="{due_month}" class="{row_class}">
@@ -320,6 +320,8 @@ def generate_html(data, password):
             packed = bytes(salt) + bytes(encrypted)
             with open(output_path, "w", encoding="ascii") as f:
                 f.write(base64.b64encode(packed).decode('ascii'))
+        # 同时保存加密的原始 PDF 用于下载
+        encrypt_file_to_output(filepath, password, os.path.join(pdf_dir, f"{p['policy_id']}.enc"))
         available_files[p["policy_id"]] = page_count
         if pdf_pwd:
             pdf_passwords[p["policy_id"]] = pdf_pwd
@@ -381,6 +383,9 @@ tr:hover { background: #f8f9fa; }
 .view-btn { background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap; }
 .view-btn:hover { opacity: 0.85; }
 .view-btn:disabled { opacity: 0.5; cursor: wait; }
+.dl-btn { background: linear-gradient(135deg, #27ae60, #2ecc71); color: white; border: none; padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.dl-btn:hover { opacity: 0.85; }
+.dl-btn:disabled { opacity: 0.5; cursor: wait; }
 .no-file { color: #bbb; font-size: 12px; }
 .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.6); z-index: 9999; align-items: center; justify-content: center; }
 .modal.active { display: flex; }
@@ -556,6 +561,33 @@ function nextPage() {
 function closePdfModal() {
     document.getElementById('pdf-modal').classList.remove('active');
     document.getElementById('pdf-container').innerHTML = '';
+}
+
+async function downloadPolicy(policyId) {
+    var btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '\u23f3 下载中...';
+    try {
+        var resp = await fetch('pdfs/' + policyId + '.enc');
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        var encryptedBase64 = await resp.text();
+        var decryptedBytes = await decryptData(encryptedBase64, userPassword);
+        var blob = new Blob([decryptedBytes], { type: 'application/pdf' });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = policyId + '.pdf';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (e) {
+        console.error(e);
+        alert('下载失败: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '\u2b07 下载';
+    }
 }
 
 function closeModal(e) {
