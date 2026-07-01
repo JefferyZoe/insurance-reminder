@@ -104,75 +104,6 @@ def calculate_policy_year(first_insure_date_str):
         return today.year - first_date.year
 
 
-def send_cash_value_message(access_token, user, policies):
-    """用 WX_TEMPLATE_ID 给第一个用户发送现金价值汇总"""
-    cash_values = load_cash_values()
-    if not cash_values:
-        print("⚠️ 无现金价值数据，跳过发送")
-        return
-
-    today = datetime.date.today()
-    total_value = 0
-    details = []
-
-    for p in policies:
-        pid = p["policy_id"]
-        if pid not in cash_values:
-            continue
-        policy_year = calculate_policy_year(p["first_insure_date"])
-        if policy_year < 1:
-            continue
-        cv = cash_values[pid].get(policy_year)
-        if cv is None:
-            continue
-        total_value += cv
-        details.append(f"{p['policy_name']} 第{policy_year}年 ¥{cv:,.0f}")
-
-    if not details:
-        print("⚠️ 无可用现金价值数据")
-        return
-
-    url = f"https://api.weixin.qq.com/cgi-bin/message/template/send?access_token={access_token}"
-
-    # 构建消息（使用 WX_TEMPLATE_ID 模板）
-    data = {
-        "first": {
-            "value": f"【{today.year}年保单现金价值汇总】",
-            "color": "#173177",
-        },
-        "keyword1": {
-            "value": f"¥{total_value:,.0f}",
-            "color": "#FF0000",
-        },
-        "keyword2": {
-            "value": f"共{len(details)}份保单",
-            "color": "#173177",
-        },
-        "keyword3": {
-            "value": today.strftime("%Y-%m-%d"),
-            "color": "#173177",
-        },
-        "remark": {
-            "value": "点击查看详细信息",
-            "color": "#666666",
-        },
-    }
-
-    payload = {
-        "touser": user["openid"],
-        "template_id": TEMPLATE_ID,
-        "url": DETAIL_PAGE_URL,
-        "data": data,
-    }
-
-    resp = requests.post(url, json=payload, timeout=10)
-    result = resp.json()
-    if result.get("errcode") == 0:
-        print(f"✅ 现金价值汇总消息已发送给 {user['name']}")
-    else:
-        print(f"❌ 现金价值消息发送失败: {result}")
-
-
 def get_access_token():
     """获取微信access_token"""
     token_url = (
@@ -300,7 +231,7 @@ def send_summary_message(access_token, openid, user_name, policies):
     return resp.json()
 
 
-def send_template_message(access_token, openid, user_name, policy, due_date, days_left):
+def send_template_message(access_token, openid, user_name, policy, due_date, days_left, cash_value=None):
     """发送微信模板消息"""
     url = f"https://api.weixin.qq.com/cgi-bin/message/template/send?access_token={access_token}"
     
@@ -310,6 +241,10 @@ def send_template_message(access_token, openid, user_name, policy, due_date, day
         policy["pay_period_years"], 
         due_date
     )
+
+    remark_text = f"当前是第 {current} 期缴费，剩余{days_left} 天"
+    if cash_value is not None:
+        remark_text += f"\n当前现金价值：¥{cash_value:,.0f}"
 
     payload = {
         "touser": openid,
@@ -349,9 +284,7 @@ def send_template_message(access_token, openid, user_name, policy, due_date, day
                 "color": "#173177",
             },
             "remark": {
-                "value": (
-                    f"当前是第 {current} 期缴费，剩余{days_left} 天"
-                ),
+                "value": remark_text,
                 "color": "#666666",
             },
         },
@@ -381,9 +314,8 @@ def main():
     access_token = get_access_token()
     print("✅ access_token获取成功\n")
 
-    # 发送现金价值汇总给第一个用户
-    if users:
-        send_cash_value_message(access_token, users[0], policies)
+    # 加载现金价值数据
+    cash_values = load_cash_values()
 
     # 按用户发送提醒（所有保单通知发给每个用户）
     for user in users:
@@ -405,10 +337,6 @@ def main():
                 if 0 <= days_left <= REMIND_DAYS_BEFORE:
                     remind_policies.append((policy, next_due, days_left))
 
-        # 汇总信息已取消，用户可点击模板消息进入详情页查看全部保单
-        # if remind_policies:
-        #     result = send_summary_message(access_token, openid, user_name, policies)
-
         # 再逐个发送续费提醒
         for policy in policies:
             next_due = calculate_next_due_date(
@@ -423,8 +351,15 @@ def main():
 
             # 判断是否在提醒窗口内
             if 0 <= days_left <= REMIND_DAYS_BEFORE:
+                # 获取该保单当前现金价值
+                cv = None
+                pid = policy["policy_id"]
+                if pid in cash_values:
+                    policy_year = calculate_policy_year(policy["first_insure_date"])
+                    cv = cash_values[pid].get(policy_year)
+
                 result = send_template_message(
-                    access_token, openid, user_name, policy, next_due, days_left
+                    access_token, openid, user_name, policy, next_due, days_left, cv
                 )
                 if result.get("errcode") == 0:
                     print(f"  ✅ 提醒发送成功 (剩余{days_left}天)")
