@@ -87,36 +87,35 @@ def encrypt_file_to_output(filepath, password, output_path):
 def convert_pdf_to_images(filepath, pdf_password=None):
     """将 PDF 转换为 JPEG 图片列表（每页一张），返回 [(page_num, jpeg_bytes), ...]"""
     try:
-        from pdf2image import convert_from_path
-        kwargs = {'dpi': 200, 'fmt': 'jpeg'}
-        if pdf_password:
-            kwargs['userpw'] = pdf_password
-        images = convert_from_path(filepath, **kwargs)
+        import fitz  # PyMuPDF
+        # 用二进制方式读取避免路径编码问题
+        with open(filepath, "rb") as f:
+            pdf_data = f.read()
+        doc = fitz.open(stream=pdf_data, filetype="pdf")
+        if doc.is_encrypted:
+            if pdf_password:
+                if not doc.authenticate(pdf_password):
+                    print(f"  ❌ PDF 密码错误: {filepath}")
+                    doc.close()
+                    return []
+            else:
+                print(f"  ❌ PDF 需要密码但未提供: {filepath}")
+                doc.close()
+                return []
         result = []
-        for i, img in enumerate(images):
-            import io
-            buf = io.BytesIO()
-            img.save(buf, format='JPEG', quality=85)
-            result.append((i + 1, buf.getvalue()))
+        for i, page in enumerate(doc):
+            # 2x 缩放确保清晰
+            mat = fitz.Matrix(2, 2)
+            pix = page.get_pixmap(matrix=mat)
+            result.append((i + 1, pix.tobytes("jpeg")))
+        doc.close()
         return result
     except ImportError:
-        print("  ⚠️  pdf2image 未安装，尝试使用 PyMuPDF...")
-        try:
-            import fitz  # PyMuPDF
-            doc = fitz.open(filepath)
-            if pdf_password and doc.is_encrypted:
-                doc.authenticate(pdf_password)
-            result = []
-            for i, page in enumerate(doc):
-                # 2x 缩放确保清晰
-                mat = fitz.Matrix(2, 2)
-                pix = page.get_pixmap(matrix=mat)
-                result.append((i + 1, pix.tobytes("jpeg")))
-            doc.close()
-            return result
-        except ImportError:
-            print("  ❌ 需要安装 pdf2image 或 PyMuPDF")
-            return []
+        print("  ❌ 需要安装 PyMuPDF: pip install PyMuPDF")
+        return []
+    except Exception as e:
+        print(f"  ❌ PDF 处理失败: {e}")
+        return []
 
 
 def build_content_html(data, available_files, pdf_passwords):
