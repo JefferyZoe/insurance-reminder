@@ -97,13 +97,12 @@ def convert_pdf_to_images(filepath, pdf_password=None):
                 if not doc.authenticate(pdf_password):
                     # 尝试空密码
                     if not doc.authenticate(""):
-                        print(f"  ❌ PDF 密码错误: {os.path.basename(filepath)}")
+                        # PDF 密码错误
                         doc.close()
                         return []
             else:
                 # 尝试空密码解锁（部分 PDF 只有 owner password 没有 user password）
                 if not doc.authenticate(""):
-                    print(f"  ❌ PDF 需要密码但未提供: {os.path.basename(filepath)}")
                     doc.close()
                     return []
         result = []
@@ -115,10 +114,8 @@ def convert_pdf_to_images(filepath, pdf_password=None):
         doc.close()
         return result
     except ImportError:
-        print("  ❌ 需要安装 PyMuPDF: pip install PyMuPDF")
         return []
     except Exception as e:
-        print(f"  ❌ PDF 处理失败 ({os.path.basename(filepath)}): {e}")
         return []
 
 
@@ -293,13 +290,11 @@ def generate_html(data, password):
             continue
         filepath = os.path.join(POLICY_FILES_DIR, policy_file)
         if not os.path.exists(filepath):
-            print(f"  \u26a0\ufe0f  保单文件不存在: {filepath}")
             continue
         pdf_pwd = p.get("pdf_password", "")
         # 将 PDF 转为图片，每页加密存储
         images = convert_pdf_to_images(filepath, pdf_pwd)
         if not images:
-            print(f"  \u26a0\ufe0f  PDF 转图片失败: {policy_file}")
             continue
         page_count = len(images)
         for page_num, jpeg_bytes in images:
@@ -325,7 +320,6 @@ def generate_html(data, password):
         available_files[p["policy_id"]] = page_count
         if pdf_pwd:
             pdf_passwords[p["policy_id"]] = pdf_pwd
-        print(f"  \U0001f4c4 已转换: {policy_file} ({page_count}页)")
 
     content_html = build_content_html(data, available_files, pdf_passwords)
     encrypted_data = encrypt_content(content_html, password)
@@ -614,8 +608,6 @@ def main():
     html = generate_html(data, PAGE_PASSWORD)
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(html)
-    print("\u2705 加密详情页面已生成: " + OUTPUT_FILE)
-    print("\U0001f511 访问密码: " + PAGE_PASSWORD)
 
 
 if __name__ == "__main__":
