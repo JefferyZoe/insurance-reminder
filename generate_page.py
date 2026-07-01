@@ -84,7 +84,7 @@ def encrypt_file_to_output(filepath, password, output_path):
     return len(data)
 
 
-def build_content_html(data, available_files):
+def build_content_html(data, available_files, pdf_passwords):
     today = datetime.date.today()
     policies = data.get("policies", [])
 
@@ -178,7 +178,8 @@ def build_content_html(data, available_files):
             row_class = "row-warning"
         has_file = p["policy_id"] in available_files
         if has_file:
-            view_btn = f'<button class="view-btn" onclick="viewPolicy(\'{p["policy_id"]}\')">📄 查看</button>'
+            pdf_pwd = pdf_passwords.get(p["policy_id"], "")
+            view_btn = f'<button class="view-btn" onclick="viewPolicy(\'{p["policy_id"]}\', \'{pdf_pwd}\')">📄 查看</button>'
         else:
             view_btn = '<span class="no-file">暂无</span>'
         rows += f"""<tr data-month="{due_month}" class="{row_class}">
@@ -247,6 +248,7 @@ def generate_html(data, password):
     pdf_dir = os.path.join(OUTPUT_DIR, "pdfs")
     os.makedirs(pdf_dir, exist_ok=True)
     available_files = {}
+    pdf_passwords = {}
     for p in policies:
         policy_file = p.get("policy_file", "")
         if not policy_file:
@@ -258,9 +260,11 @@ def generate_html(data, password):
         output_path = os.path.join(pdf_dir, f"{p['policy_id']}.enc")
         file_size = encrypt_file_to_output(filepath, password, output_path)
         available_files[p["policy_id"]] = True
+        if p.get("pdf_password"):
+            pdf_passwords[p["policy_id"]] = p["pdf_password"]
         print(f"  \U0001f4c4 已加密: {policy_file} ({file_size // 1024}KB)")
 
-    content_html = build_content_html(data, available_files)
+    content_html = build_content_html(data, available_files, pdf_passwords)
     encrypted_data = encrypt_content(content_html, password)
 
     html = '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n'
@@ -436,7 +440,7 @@ async function decrypt() {
     }
 }
 
-async function viewPolicy(policyId) {
+async function viewPolicy(policyId, pdfPwd) {
     var btn = event.target;
     btn.disabled = true;
     btn.textContent = '\u23f3 加载中...';
@@ -451,11 +455,15 @@ async function viewPolicy(policyId) {
 
         btn.textContent = '\u23f3 渲染中...';
         // 用 PDF.js 渲染，加载 cmap 支持中文
-        var loadingTask = pdfjsLib.getDocument({
+        var docParams = {
             data: decryptedBytes,
             cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
             cMapPacked: true
-        });
+        };
+        if (pdfPwd) {
+            docParams.password = pdfPwd;
+        }
+        var loadingTask = pdfjsLib.getDocument(docParams);
         currentPdf = await loadingTask.promise;
         totalPages = currentPdf.numPages;
         currentPage = 1;
