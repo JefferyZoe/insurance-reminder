@@ -235,14 +235,16 @@ def build_cash_value_html(data, cash_values):
         display = "" if yr == current_year else "display:none;"
         rows = ""
         for d in yd["details"]:
-            rows += f"<tr><td>{d['user']}</td><td>{d['name']}</td><td>第{d['policy_year']}年</td><td class='amount'>¥{d['cv']:,.0f}</td></tr>"
+            profit = d['cv'] - d['premium_paid']
+            profit_class = "green" if profit >= 0 else "red"
+            rows += f"<tr><td>{d['user']}</td><td>{d['name']}</td><td>第{d['policy_year']}年</td><td class='amount'>¥{d['cv']:,.0f}</td><td class='amount'>¥{d['premium_paid']:,}</td><td class='amount {profit_class}'>¥{profit:,.0f}</td></tr>"
         year_divs += f"""<div class="cash-year-block" data-cash-year="{yr}" style="{display}">
 <div class="summary-cards">
 <div class="summary-card"><div class="summary-label">总现金价值</div><div class="summary-value">¥{yd['total_cv']:,.0f}</div></div>
 <div class="summary-card"><div class="summary-label">浮动盈亏</div><div class="summary-value {'green' if yd['total_cv'] - yd['total_premium'] >= 0 else 'red'}">¥{yd['total_cv'] - yd['total_premium']:,.0f}</div></div>
 </div>
 <table class="cash-table"><thead><tr>
-<th>被保人</th><th>保单</th><th>保单年度</th><th>现金价值</th>
+<th>被保人</th><th>保单</th><th>保单年度</th><th>现金价值</th><th>已交保费</th><th>浮动盈亏</th>
 </tr></thead><tbody>{rows}</tbody></table>
 </div>"""
 
