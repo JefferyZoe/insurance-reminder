@@ -95,13 +95,17 @@ def convert_pdf_to_images(filepath, pdf_password=None):
         if doc.is_encrypted:
             if pdf_password:
                 if not doc.authenticate(pdf_password):
-                    print(f"  ❌ PDF 密码错误: {filepath}")
+                    # 尝试空密码
+                    if not doc.authenticate(""):
+                        print(f"  ❌ PDF 密码错误: {os.path.basename(filepath)}")
+                        doc.close()
+                        return []
+            else:
+                # 尝试空密码解锁（部分 PDF 只有 owner password 没有 user password）
+                if not doc.authenticate(""):
+                    print(f"  ❌ PDF 需要密码但未提供: {os.path.basename(filepath)}")
                     doc.close()
                     return []
-            else:
-                print(f"  ❌ PDF 需要密码但未提供: {filepath}")
-                doc.close()
-                return []
         result = []
         for i, page in enumerate(doc):
             # 2x 缩放确保清晰
@@ -114,7 +118,7 @@ def convert_pdf_to_images(filepath, pdf_password=None):
         print("  ❌ 需要安装 PyMuPDF: pip install PyMuPDF")
         return []
     except Exception as e:
-        print(f"  ❌ PDF 处理失败: {e}")
+        print(f"  ❌ PDF 处理失败 ({os.path.basename(filepath)}): {e}")
         return []
 
 
