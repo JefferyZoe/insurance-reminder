@@ -139,8 +139,20 @@ def encrypt_content(plaintext, password):
     return base64.b64encode(packed).decode('ascii')
 
 
+def get_policy_year_for_date(first_insure_date_str, target_year):
+    """计算某个目标年份对应的保单年度"""
+    first_date = datetime.datetime.strptime(first_insure_date_str, "%Y-%m-%d").date()
+    # 目标年的周年日
+    try:
+        anniversary = first_date.replace(year=target_year)
+    except ValueError:
+        anniversary = first_date.replace(year=target_year, day=28)
+    # 假设以年末视角看：该年周年日已过，算当年的年度
+    return target_year - first_date.year + 1
+
+
 def build_cash_value_html(data, cash_values):
-    """构建现金价值汇总 HTML"""
+    """构建现金价值汇总 HTML（支持年份筛选）"""
     if not cash_values:
         return ""
 
@@ -148,49 +160,86 @@ def build_cash_value_html(data, cash_values):
     current_year = today.year
     policies = data.get("policies", [])
 
-    total_value = 0
-    details = []
-
+    # 计算可选年份范围：从最早保单的首保年份到今年
+    first_years = []
     for p in policies:
-        pid = p["policy_id"]
-        if pid not in cash_values:
-            continue
-        policy_year = calculate_policy_year(p["first_insure_date"])
-        if policy_year < 1:
-            continue
-        cv = cash_values[pid].get(policy_year)
-        if cv is None:
-            continue
+        if p["policy_id"] in cash_values:
+            fy = datetime.datetime.strptime(p["first_insure_date"], "%Y-%m-%d").year
+            first_years.append(fy)
+    if not first_years:
+        return ""
+    min_year = min(first_years)
+    year_range = list(range(min_year, current_year + 1))
 
-        total_value += cv
-        details.append({
-            "name": p["policy_name"],
-            "user": p["user_name"],
-            "year": policy_year,
-            "value": cv,
-        })
+    # 预计算每个年份的数据
+    # 格式: {year: {total_cv, total_premium_paid, details: [{name, user, policy_year, cv, premium}]}}
+    all_year_data = {}
+    for yr in year_range:
+        total_cv = 0
+        total_premium = 0
+        details = []
+        for p in policies:
+            pid = p["policy_id"]
+            if pid not in cash_values:
+                continue
+            first_date = datetime.datetime.strptime(p["first_insure_date"], "%Y-%m-%d").date()
+            # 该保单在目标年份的保单年度
+            policy_year = yr - first_date.year + 1
+            if policy_year < 1:
+                continue  # 该年份保单还没开始
+            cv = cash_values[pid].get(policy_year)
+            if cv is None:
+                continue
+            # 已交保费 = 已缴期数 * 每期保费
+            # 保单年度即为已缴期数（因为第1年度就交了第1期）
+            paid_periods = min(policy_year, p["pay_period_years"])
+            premium_paid = paid_periods * int(p["premium"])
+            total_cv += cv
+            total_premium += premium_paid
+            details.append({
+                "name": p["policy_name"],
+                "user": p["user_name"],
+                "policy_year": policy_year,
+                "cv": cv,
+                "premium_paid": premium_paid,
+            })
+        if details:
+            all_year_data[yr] = {
+                "total_cv": total_cv,
+                "total_premium": total_premium,
+                "details": details,
+            }
 
-    if not details:
+    if not all_year_data:
         return ""
 
-    # 明细行
-    detail_rows = ""
-    for d in details:
-        detail_rows += f"""<tr>
-<td>{d['user']}</td><td>{d['name']}</td><td>第{d['year']}年</td>
-<td class="amount">¥{d['value']:,.0f}</td>
-</tr>"""
+    # 年份筛选按钮
+    year_tags = ""
+    for yr in reversed(year_range):
+        if yr in all_year_data:
+            active = "active" if yr == current_year else ""
+            year_tags += f"<span class='monthly-tag {active}' onclick='filterCashYear({yr}, event)'>{yr}</span>"
 
-    html = f"""<div class="summary-section-title">保单现金价值（{current_year}年）</div>
+    # 为每个年份生成隐藏的数据 div
+    year_divs = ""
+    for yr, yd in all_year_data.items():
+        display = "" if yr == current_year else "display:none;"
+        rows = ""
+        for d in yd["details"]:
+            rows += f"<tr><td>{d['user']}</td><td>{d['name']}</td><td>第{d['policy_year']}年</td><td class='amount'>¥{d['cv']:,.0f}</td><td class='amount'>¥{d['premium_paid']:,}</td></tr>"
+        year_divs += f"""<div class="cash-year-block" data-cash-year="{yr}" style="{display}">
 <div class="summary-cards">
-<div class="summary-card"><div class="summary-label">总现金价值</div><div class="summary-value">¥{total_value:,.0f}</div></div>
+<div class="summary-card"><div class="summary-label">总现金价值</div><div class="summary-value">¥{yd['total_cv']:,.0f}</div></div>
+<div class="summary-card"><div class="summary-label">累计已交保费</div><div class="summary-value red">¥{yd['total_premium']:,}</div></div>
 </div>
-<details class="cash-detail">
-<summary>查看明细</summary>
 <table class="cash-table"><thead><tr>
-<th>被保人</th><th>保单</th><th>年度</th><th>现金价值</th>
-</tr></thead><tbody>{detail_rows}</tbody></table>
-</details>"""
+<th>被保人</th><th>保单</th><th>保单年度</th><th>现金价值</th><th>已交保费</th>
+</tr></thead><tbody>{rows}</tbody></table>
+</div>"""
+
+    html = f"""<div class="summary-section-title">保单现金价值</div>
+<div class="monthly-detail"><span class="monthly-title">选择年份：</span><div class="monthly-tags">{year_tags}</div></div>
+{year_divs}"""
     return html
 
 
