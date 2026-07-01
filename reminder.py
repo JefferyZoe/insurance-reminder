@@ -52,6 +52,126 @@ def load_config():
 # ==================== 提醒配置 ====================
 REMIND_DAYS_BEFORE = 60  # 到期前多少天开始提醒
 
+# 保单文件目录
+POLICY_FILES_DIR = os.environ.get('POLICY_FILES_DIR', os.path.join(SCRIPT_DIR, "policy_files"))
+EXCEL_FILE = os.path.join(POLICY_FILES_DIR, "insurance.xlsx")
+
+
+def load_cash_values():
+    """从 Excel 读取现金价值。返回 {policy_id: {年度: 值}}"""
+    if not os.path.exists(EXCEL_FILE):
+        return {}
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(EXCEL_FILE, read_only=True, data_only=True)
+        ws = wb.active
+        row2 = list(ws.iter_rows(min_row=2, max_row=2, values_only=True))[0]
+        policy_cols = {}
+        for col_idx, val in enumerate(row2):
+            if val and str(val).startswith("POL"):
+                policy_cols[str(val)] = col_idx
+        result = {pid: {} for pid in policy_cols}
+        for row in ws.iter_rows(min_row=4, values_only=True):
+            if row[0] is None:
+                continue
+            try:
+                year = int(row[0])
+            except (ValueError, TypeError):
+                continue
+            for pid, col_idx in policy_cols.items():
+                if col_idx < len(row) and row[col_idx] is not None:
+                    try:
+                        result[pid][year] = float(row[col_idx])
+                    except (ValueError, TypeError):
+                        pass
+        wb.close()
+        return result
+    except Exception:
+        return {}
+
+
+def calculate_policy_year(first_insure_date_str):
+    """计算当前保单年度"""
+    first_date = datetime.datetime.strptime(first_insure_date_str, "%Y-%m-%d").date()
+    today = datetime.date.today()
+    try:
+        anniversary = first_date.replace(year=today.year)
+    except ValueError:
+        anniversary = first_date.replace(year=today.year, day=28)
+    if today >= anniversary:
+        return today.year - first_date.year + 1
+    else:
+        return today.year - first_date.year
+
+
+def send_cash_value_message(access_token, user, policies):
+    """用 WX_TEMPLATE_ID 给第一个用户发送现金价值汇总"""
+    cash_values = load_cash_values()
+    if not cash_values:
+        print("⚠️ 无现金价值数据，跳过发送")
+        return
+
+    today = datetime.date.today()
+    total_value = 0
+    details = []
+
+    for p in policies:
+        pid = p["policy_id"]
+        if pid not in cash_values:
+            continue
+        policy_year = calculate_policy_year(p["first_insure_date"])
+        if policy_year < 1:
+            continue
+        cv = cash_values[pid].get(policy_year)
+        if cv is None:
+            continue
+        total_value += cv
+        details.append(f"{p['policy_name']} 第{policy_year}年 ¥{cv:,.0f}")
+
+    if not details:
+        print("⚠️ 无可用现金价值数据")
+        return
+
+    url = f"https://api.weixin.qq.com/cgi-bin/message/template/send?access_token={access_token}"
+
+    # 构建消息（使用 WX_TEMPLATE_ID 模板）
+    data = {
+        "first": {
+            "value": f"【{today.year}年保单现金价值汇总】",
+            "color": "#173177",
+        },
+        "keyword1": {
+            "value": f"¥{total_value:,.0f}",
+            "color": "#FF0000",
+        },
+        "keyword2": {
+            "value": f"共{len(details)}份保单",
+            "color": "#173177",
+        },
+        "keyword3": {
+            "value": today.strftime("%Y-%m-%d"),
+            "color": "#173177",
+        },
+        "remark": {
+            "value": "点击查看详细信息",
+            "color": "#666666",
+        },
+    }
+
+    payload = {
+        "touser": user["openid"],
+        "template_id": TEMPLATE_ID,
+        "url": DETAIL_PAGE_URL,
+        "data": data,
+    }
+
+    resp = requests.post(url, json=payload, timeout=10)
+    result = resp.json()
+    if result.get("errcode") == 0:
+        print(f"✅ 现金价值汇总消息已发送给 {user['name']}")
+    else:
+        print(f"❌ 现金价值消息发送失败: {result}")
+
 
 def get_access_token():
     """获取微信access_token"""
@@ -260,6 +380,10 @@ def main():
     print("🔑 正在获取微信access_token...")
     access_token = get_access_token()
     print("✅ access_token获取成功\n")
+
+    # 发送现金价值汇总给第一个用户
+    if users:
+        send_cash_value_message(access_token, users[0], policies)
 
     # 按用户发送提醒（所有保单通知发给每个用户）
     for user in users:

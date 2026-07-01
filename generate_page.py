@@ -2,6 +2,7 @@
 """
 生成保单详情 HTML 页面（带密码保护），部署到 GitHub Pages。
 保单文件通过百度云链接查看/下载。
+支持从 Excel 读取现金价值数据并汇总。
 """
 import json
 import os
@@ -17,6 +18,8 @@ OUTPUT_FILE = os.path.join(OUTPUT_DIR, "index.html")
 TEMPLATES_DIR = os.path.join(SCRIPT_DIR, "templates")
 
 PAGE_PASSWORD = os.environ.get('PAGE_PASSWORD', '123456')
+POLICY_FILES_DIR = os.environ.get('POLICY_FILES_DIR', os.path.join(SCRIPT_DIR, "policy_files"))
+EXCEL_FILE = os.path.join(POLICY_FILES_DIR, "insurance.xlsx")
 
 
 def load_config():
@@ -24,9 +27,160 @@ def load_config():
         return json.load(f)
 
 
+def load_cash_values():
+    """
+    从 Excel 读取现金价值数据。
+    Excel 结构：
+    - 行2: policy_id (如 POL001, POL002, ...)
+    - 行3: 类型 (guaranteed)
+    - 行4+: 数据，A列为保单年度(1,2,3...)，其他列为现金价值
+    返回: {policy_id: {年度: 现金价值}}
+    """
+    if not os.path.exists(EXCEL_FILE):
+        return {}
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(EXCEL_FILE, read_only=True, data_only=True)
+        ws = wb.active
+
+        # 读取第2行获取 policy_id
+        row2 = list(ws.iter_rows(min_row=2, max_row=2, values_only=True))[0]
+
+        # 找出每个 policy_id 对应的列索引
+        policy_cols = {}  # {policy_id: col_index}
+        for col_idx, val in enumerate(row2):
+            if val and str(val).startswith("POL"):
+                policy_cols[str(val)] = col_idx
+
+        # 从第4行开始读取数据
+        result = {}  # {policy_id: {年度: 现金价值}}
+        for policy_id in policy_cols:
+            result[policy_id] = {}
+
+        for row in ws.iter_rows(min_row=4, values_only=True):
+            year_val = row[0]
+            if year_val is None:
+                continue
+            try:
+                year = int(year_val)
+            except (ValueError, TypeError):
+                continue
+            for policy_id, col_idx in policy_cols.items():
+                if col_idx < len(row) and row[col_idx] is not None:
+                    try:
+                        result[policy_id][year] = float(row[col_idx])
+                    except (ValueError, TypeError):
+                        pass
+
+        wb.close()
+        return result
+    except Exception:
+        return {}
+
+
+def calculate_policy_year(first_insure_date_str):
+    """根据 first_insure_date 计算当前保单年度（first_insure_date 是第1年度）"""
+    first_date = datetime.datetime.strptime(first_insure_date_str, "%Y-%m-%d").date()
+    today = datetime.date.today()
+    # 当前保单年度 = 今年 - 首保年份 + 1
+    # 如果还没到今年的保单周年日，算上一年度
+    try:
+        anniversary = first_date.replace(year=today.year)
+    except ValueError:
+        anniversary = first_date.replace(year=today.year, day=28)
+    if today >= anniversary:
+        return today.year - first_date.year + 1
+    else:
+        return today.year - first_date.year
+
+
 def load_template(filename):
     with open(os.path.join(TEMPLATES_DIR, filename), "r", encoding="utf-8") as f:
         return f.read()
+
+
+def load_cash_values():
+    """
+    从 Excel 读取现金价值数据。
+    Excel 结构：
+    - 第1行：保单名称（每个保单占3列）
+    - 第2行：policy_id | policy_id | ... 每3列为 guaranteed/mid/high
+    - 第3行起：年度数据，A列为保单年度
+    返回: {policy_id: {year: {"guaranteed": x, "mid": y, "high": z}}}
+    """
+    if not os.path.exists(EXCEL_FILE):
+        return {}
+    try:
+        from openpyxl import load_workbook
+        wb = load_workbook(EXCEL_FILE, read_only=True, data_only=True)
+        ws = wb.active
+
+        rows = list(ws.iter_rows(values_only=True))
+        if len(rows) < 3:
+            return {}
+
+        # 第2行是 key 行（policy_id + 类型）
+        key_row = rows[1]  # index 0=第1行, 1=第2行
+
+        # 解析列映射：找到每个 policy_id 对应的 guaranteed/mid/high 列索引
+        # 格式: col 0=保单年度, col 1=guaranteed, col 2=mid, col 3=high, col 4=guaranteed, ...
+        policy_columns = {}  # {policy_id: {"guaranteed": col_idx, "mid": col_idx, "high": col_idx}}
+
+        col_idx = 1  # 从第2列开始（第1列是年度）
+        while col_idx < len(key_row):
+            cell_val = key_row[col_idx]
+            if cell_val and str(cell_val).strip():
+                pid = str(cell_val).strip()
+                if pid not in policy_columns:
+                    policy_columns[pid] = {}
+                # 该 policy_id 后面紧跟的类型标识在同一行
+                # 实际上第2行格式是: [保单年度, POL001, POL001, POL001, POL002, POL002, POL002, ...]
+                # 对应类型顺序固定为 guaranteed, mid, high
+                if "guaranteed" not in policy_columns[pid]:
+                    policy_columns[pid]["guaranteed"] = col_idx
+                elif "mid" not in policy_columns[pid]:
+                    policy_columns[pid]["mid"] = col_idx
+                elif "high" not in policy_columns[pid]:
+                    policy_columns[pid]["high"] = col_idx
+            col_idx += 1
+
+        # 读取数据行（第3行起）
+        result = {}
+        for row in rows[2:]:
+            year_val = row[0]
+            if year_val is None:
+                continue
+            try:
+                year = int(year_val)
+            except (ValueError, TypeError):
+                continue
+
+            for pid, cols in policy_columns.items():
+                g_idx = cols.get("guaranteed")
+                m_idx = cols.get("mid")
+                h_idx = cols.get("high")
+
+                g_val = row[g_idx] if g_idx and g_idx < len(row) else None
+                m_val = row[m_idx] if m_idx and m_idx < len(row) else None
+                h_val = row[h_idx] if h_idx and h_idx < len(row) else None
+
+                # 至少有保证值才记录
+                if g_val is not None and g_val != "" and g_val != 0:
+                    if pid not in result:
+                        result[pid] = {}
+                    try:
+                        result[pid][year] = {
+                            "guaranteed": float(g_val) if g_val else 0,
+                            "mid": float(m_val) if m_val else 0,
+                            "high": float(h_val) if h_val else 0,
+                        }
+                    except (ValueError, TypeError):
+                        pass
+
+        wb.close()
+        return result
+    except Exception:
+        return {}
 
 
 def calculate_next_due_date(first_insure_date_str, pay_period_years):
@@ -50,8 +204,15 @@ def calculate_installment_info(first_insure_date_str, pay_period_years, due_date
     return paid_installments, current_installment, pay_period_years
 
 
+def get_policy_year(first_insure_date_str):
+    """根据首保日期计算当前保单年度。first_insure_date 是第1保单年度。"""
+    first_date = datetime.datetime.strptime(first_insure_date_str, "%Y-%m-%d").date()
+    today = datetime.date.today()
+    return today.year - first_date.year + 1
+
+
 def encrypt_content(plaintext, password):
-    """AES-GCM 加密文本，返回 base64(salt + iv + ciphertext + tag)"""
+    """AES-GCM 加密文本"""
     salt = secrets.token_bytes(16)
     iv = secrets.token_bytes(12)
     key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 10000, dklen=32)
@@ -62,7 +223,62 @@ def encrypt_content(plaintext, password):
     return base64.b64encode(packed).decode('ascii')
 
 
-def build_content_html(data):
+def build_cash_value_html(data, cash_values):
+    """构建现金价值汇总 HTML"""
+    if not cash_values:
+        return ""
+
+    today = datetime.date.today()
+    current_year = today.year
+    policies = data.get("policies", [])
+
+    total_value = 0
+    details = []
+
+    for p in policies:
+        pid = p["policy_id"]
+        if pid not in cash_values:
+            continue
+        policy_year = calculate_policy_year(p["first_insure_date"])
+        if policy_year < 1:
+            continue
+        cv = cash_values[pid].get(policy_year)
+        if cv is None:
+            continue
+
+        total_value += cv
+        details.append({
+            "name": p["policy_name"],
+            "user": p["user_name"],
+            "year": policy_year,
+            "value": cv,
+        })
+
+    if not details:
+        return ""
+
+    # 明细行
+    detail_rows = ""
+    for d in details:
+        detail_rows += f"""<tr>
+<td>{d['user']}</td><td>{d['name']}</td><td>第{d['year']}年</td>
+<td class="amount">¥{d['value']:,.0f}</td>
+</tr>"""
+
+    html = f"""<div class="summary-section-title">保单现金价值（{current_year}年）</div>
+<div class="summary-cards">
+<div class="summary-card"><div class="summary-label">总现金价值</div><div class="summary-value">¥{total_value:,.0f}</div></div>
+</div>
+<details class="cash-detail">
+<summary>查看明细</summary>
+<table class="cash-table"><thead><tr>
+<th>被保人</th><th>保单</th><th>年度</th><th>现金价值</th>
+</tr></thead><tbody>{detail_rows}</tbody></table>
+</details>"""
+    return html
+
+
+def build_content_html(data, cash_values):
     today = datetime.date.today()
     policies = data.get("policies", [])
 
@@ -167,6 +383,9 @@ def build_content_html(data):
 <td>{item['days_left']}</td><td class="{item['status_class']}">{item['status']}</td><td>{view_btn}</td>
 </tr>"""
 
+    # 现金价值汇总
+    cash_value_html = build_cash_value_html(data, cash_values)
+
     content = f"""<div class="header">
 <h1>📋 家庭保单续费详情</h1>
 <p>更新时间：{today.strftime('%Y年%m月%d日')}</p>
@@ -184,6 +403,7 @@ def build_content_html(data):
 <div class="summary-card"><div class="summary-label">已交</div><div class="summary-value green">¥{paid_this_year:,}</div></div>
 <div class="summary-card"><div class="summary-label">还需交</div><div class="summary-value red">¥{unpaid_this_year:,}</div></div>
 </div>
+{cash_value_html}
 <div class="monthly-detail"><span class="monthly-title">月度待缴：</span>{monthly_text}</div>
 </div>
 <div class="content">
@@ -195,8 +415,8 @@ def build_content_html(data):
     return content
 
 
-def generate_html(data, password):
-    content_html = build_content_html(data)
+def generate_html(data, password, cash_values):
+    content_html = build_content_html(data, cash_values)
     encrypted_data = encrypt_content(content_html, password)
 
     css = load_template("style.css")
@@ -234,7 +454,8 @@ def generate_html(data, password):
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     data = load_config()
-    html = generate_html(data, PAGE_PASSWORD)
+    cash_values = load_cash_values()
+    html = generate_html(data, PAGE_PASSWORD, cash_values)
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         f.write(html)
 

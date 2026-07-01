@@ -38,6 +38,11 @@ tr:hover { background: #f8f9fa; }
 .view-btn { background: linear-gradient(135deg, #667eea, #764ba2); color: white; border: none; padding: 4px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; white-space: nowrap; height: 24px; line-height: 16px; text-decoration: none; display: inline-flex; align-items: center; }
 .view-btn:hover { opacity: 0.85; }
 .no-file { color: #bbb; font-size: 12px; }
+.cash-detail { margin-top: 12px; font-size: 13px; }
+.cash-detail summary { cursor: pointer; color: #4a5aba; font-weight: 500; }
+.cash-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+.cash-table th { background: #f0f4ff; padding: 6px 8px; text-align: left; font-size: 11px; }
+.cash-table td { padding: 6px 8px; border-bottom: 1px solid #eee; }
 .login-wrapper { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
 .login-box { background: white; border-radius: 16px; padding: 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); text-align: center; max-width: 360px; width: 100%; }
 .login-box h2 { margin-bottom: 8px; color: #2c3e50; }
