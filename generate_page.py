@@ -260,20 +260,21 @@ def build_cash_value_html(data, cash_values):
     if not all_year_data:
         return ""
 
-    # 年份快捷按钮：当年前后5年
-    display_years = []
-    for yr in range(current_year - 5, current_year + 6):
-        if yr in all_year_data:
-            display_years.append(yr)
-    display_years.sort(reverse=True)
+    # 生成下拉选择框
+    all_available_years = sorted(all_year_data.keys(), reverse=True)
+    year_options = ""
+    for yr in all_available_years:
+        selected = "selected" if yr == current_year else ""
+        year_options += f'<option value="{yr}" {selected}>{yr}年</option>'
+    year_select = f'<select class="year-select" id="year-select" onchange="filterCashYear(parseInt(this.value), event)">{year_options}</select>'
 
+    # 快捷年份按钮（当年前后5年）
+    quick_years = [yr for yr in range(current_year - 5, current_year + 6) if yr in all_year_data]
+    quick_years.sort(reverse=True)
     year_tags = ""
-    for yr in display_years:
+    for yr in quick_years:
         active = "active" if yr == current_year else ""
         year_tags += f"<span class='monthly-tag {active}' onclick='filterCashYear({yr}, event)'>{yr}</span>"
-
-    # 自定义年份输入
-    year_input = f'<input type="number" class="year-input" id="custom-year-input" min="{min_year}" max="{max_data_year}" placeholder="年份" onchange="filterCashYear(parseInt(this.value), event)">'
 
     # 为每个年份生成隐藏的数据 div
     year_divs = ""
@@ -290,13 +291,14 @@ def build_cash_value_html(data, cash_values):
 <div class="summary-card"><div class="summary-label">浮动盈亏</div><div class="summary-value {'green' if yd['total_cv'] - yd['total_premium'] >= 0 else 'red'}">¥{yd['total_cv'] - yd['total_premium']:,.0f}</div></div>
 </div>
 <table class="cash-table"><thead><tr>
-<th>被保人</th><th>保单</th><th>保单年度</th><th>现金价值</th><th>已交保费</th><th>浮动盈亏</th>
+<th>被保人</th><th>保单</th><th>年度</th><th>现金价值</th><th>已交保费</th><th>盈亏</th>
 </tr></thead><tbody>{rows}</tbody></table>
 </div>"""
 
     html = f"""<div class="summary-section-title">保单现金价值</div>
-<p style="font-size:10px;color:#999;margin:-6px 0 8px 2px;">POL004第5年+10000后每年+3000；POL006第6年起每年+1000</p>
-<div class="monthly-detail"><span class="monthly-title">年份：</span>{year_input}<div class="monthly-tags">{year_tags}</div></div>
+<p style="font-size:10px;color:#999;margin:-4px 0 10px 0;">POL004第5年+10000后每年+3000；POL006第6年起每年+1000</p>
+<div class="monthly-detail"><span class="monthly-title">选择年份：</span>{year_select}</div>
+<div class="monthly-tags" style="margin-top:8px;">{year_tags}</div>
 {year_divs}"""
     return html
 
@@ -425,8 +427,8 @@ def build_content_html(data, cash_values):
 <div class="summary-card"><div class="summary-label">已交</div><div class="summary-value green">¥{grand_paid:,}</div></div>
 <div class="summary-card"><div class="summary-label">剩余</div><div class="summary-value red">¥{grand_remaining:,}</div></div>
 </div>
-{cash_value_html}
 </div>
+{cash_value_html}
 </div>
 <div class="tab-content" id="tab-payment" style="display:none;">
 <div class="summary">
@@ -436,7 +438,7 @@ def build_content_html(data, cash_values):
 <div class="summary-card"><div class="summary-label">已交</div><div class="summary-value green">¥{paid_this_year:,}</div></div>
 <div class="summary-card"><div class="summary-label">还需交</div><div class="summary-value red">¥{unpaid_this_year:,}</div></div>
 </div>
-<div class="monthly-detail"><span class="monthly-title">月度待缴：</span>{monthly_text}</div>
+<div class="monthly-detail"><span class="monthly-title">月度待缴：</span><div class="monthly-tags">{monthly_text}</div></div>
 </div>
 <div class="content">
 <table><thead><tr>
@@ -475,7 +477,7 @@ def generate_html(data, password, cash_values):
         <div id="error-msg" class="error-msg">密码错误，请重试</div>
     </div>
 </div>
-<div id="main-content" class="container" style="display:none;"></div>
+<div id="main-content" style="display:none;"></div>
 <script>
 {js}
 </script>

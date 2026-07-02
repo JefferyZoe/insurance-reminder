@@ -36,9 +36,9 @@ async function decrypt() {
 function filterMonth(month, e) {
     e.preventDefault();
     e.stopPropagation();
-    document.querySelectorAll('.monthly-tag').forEach(function(tag) { tag.classList.remove('active'); });
+    document.querySelectorAll('#tab-payment .monthly-tag').forEach(function(tag) { tag.classList.remove('active'); });
     e.target.classList.add('active');
-    document.querySelectorAll('table tbody tr').forEach(function(row) {
+    document.querySelectorAll('#tab-payment table tbody tr').forEach(function(row) {
         if (month === 0) { row.style.display = ''; }
         else { row.style.display = (parseInt(row.getAttribute('data-month')) === month) ? '' : 'none'; }
     });
@@ -47,15 +47,13 @@ function filterMonth(month, e) {
 function filterCashYear(year, e) {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     if (!year || isNaN(year)) return;
+    // 同步下拉框
+    var sel = document.getElementById('year-select');
+    if (sel) sel.value = year;
     // 切换按钮 active
-    var tags = document.querySelectorAll('.cash-year-block');
-    var parent = tags[0] ? tags[0].parentElement : null;
-    if (parent) {
-        parent.querySelectorAll('.monthly-tag').forEach(function(tag) { tag.classList.remove('active'); });
-        if (e && e.target && e.target.classList.contains('monthly-tag')) {
-            e.target.classList.add('active');
-        }
-    }
+    document.querySelectorAll('.monthly-tag').forEach(function(tag) {
+        tag.classList.toggle('active', tag.textContent == year);
+    });
     // 切换数据块
     document.querySelectorAll('.cash-year-block').forEach(function(block) {
         block.style.display = (parseInt(block.getAttribute('data-cash-year')) === year) ? '' : 'none';
