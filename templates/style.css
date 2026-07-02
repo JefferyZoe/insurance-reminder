@@ -16,7 +16,7 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .summary-value { font-size: 18px; font-weight: 700; color: #2c3e50; }
 .summary-value.green { color: #27ae60; }
 .summary-value.red { color: #e74c3c; }
-.monthly-detail { display: flex; align-items: center; gap: 8px; }
+.monthly-detail { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .monthly-title { font-size: 13px; color: #666; line-height: 28px; }
 .monthly-tags { display: flex; gap: 8px; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
 .monthly-tags::-webkit-scrollbar { display: none; }
@@ -47,7 +47,7 @@ tr:hover { background: #f8f9fa; }
 .cash-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
 .cash-table th { background: #f0f4ff; padding: 6px 8px; text-align: left; font-size: 11px; }
 .cash-table td { padding: 6px 8px; border-bottom: 1px solid #eee; white-space: nowrap; }
-.year-input { width: 70px; padding: 4px 8px; border: 1px solid #ddd; border-radius: 14px; font-size: 12px; text-align: center; margin-left: 6px; }
+.year-input { width: 60px; padding: 4px 6px; border: 1px solid #ddd; border-radius: 14px; font-size: 12px; text-align: center; flex-shrink: 0; }
 .login-wrapper { display: flex; align-items: center; justify-content: center; min-height: 100vh; }
 .login-box { background: white; border-radius: 16px; padding: 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.15); text-align: center; max-width: 360px; width: 100%; }
 .login-box h2 { margin-bottom: 8px; color: #2c3e50; }

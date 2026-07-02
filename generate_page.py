@@ -273,7 +273,7 @@ def build_cash_value_html(data, cash_values):
         year_tags += f"<span class='monthly-tag {active}' onclick='filterCashYear({yr}, event)'>{yr}</span>"
 
     # 自定义年份输入
-    year_input = f'<input type="number" class="year-input" id="custom-year-input" min="{min_year}" max="{max_data_year}" placeholder="输入年份" onchange="filterCashYear(parseInt(this.value), event)">'
+    year_input = f'<input type="number" class="year-input" id="custom-year-input" min="{min_year}" max="{max_data_year}" placeholder="年份" onchange="filterCashYear(parseInt(this.value), event)">'
 
     # 为每个年份生成隐藏的数据 div
     year_divs = ""
@@ -296,7 +296,7 @@ def build_cash_value_html(data, cash_values):
 
     html = f"""<div class="summary-section-title">保单现金价值</div>
 <p style="font-size:10px;color:#999;margin:-6px 0 8px 2px;">POL004第5年+10000后每年+3000；POL006第6年起每年+1000</p>
-<div class="monthly-detail"><span class="monthly-title">选择年份：</span><div class="monthly-tags">{year_tags}</div>{year_input}</div>
+<div class="monthly-detail"><span class="monthly-title">年份：</span>{year_input}<div class="monthly-tags">{year_tags}</div></div>
 {year_divs}"""
     return html
 
