@@ -410,9 +410,14 @@ def build_content_html(data, cash_values):
     cash_value_html = build_cash_value_html(data, cash_values)
 
     content = f"""<div class="header">
-<h1>📋 家庭保单续费详情</h1>
+<h1>📋 家庭保单管理</h1>
 <p>更新时间：{today.strftime('%Y年%m月%d日')}</p>
+<div class="tab-bar">
+<span class="tab active" onclick="switchTab('overview', event)">保单总览</span>
+<span class="tab" onclick="switchTab('payment', event)">缴费详情</span>
 </div>
+</div>
+<div class="tab-content" id="tab-overview">
 <div class="summary">
 <div class="summary-section-title">累计保费</div>
 <div class="summary-cards">
@@ -420,19 +425,24 @@ def build_content_html(data, cash_values):
 <div class="summary-card"><div class="summary-label">已交</div><div class="summary-value green">¥{grand_paid:,}</div></div>
 <div class="summary-card"><div class="summary-label">剩余</div><div class="summary-value red">¥{grand_remaining:,}</div></div>
 </div>
+{cash_value_html}
+</div>
+</div>
+<div class="tab-content" id="tab-payment" style="display:none;">
+<div class="summary">
 <div class="summary-section-title">{current_year}年保费</div>
 <div class="summary-cards">
 <div class="summary-card"><div class="summary-label">今年需交</div><div class="summary-value">¥{total_this_year:,}</div></div>
 <div class="summary-card"><div class="summary-label">已交</div><div class="summary-value green">¥{paid_this_year:,}</div></div>
 <div class="summary-card"><div class="summary-label">还需交</div><div class="summary-value red">¥{unpaid_this_year:,}</div></div>
 </div>
-{cash_value_html}
 <div class="monthly-detail"><span class="monthly-title">月度待缴：</span>{monthly_text}</div>
 </div>
 <div class="content">
 <table><thead><tr>
 <th>被保人</th><th>保单名称</th><th>保险公司</th><th>保费</th><th>已交保费</th><th>总保费</th><th>首保日期</th><th>下次续费</th><th>缴费进度</th><th>剩余天数</th><th>状态</th><th>保单详情</th>
 </tr></thead><tbody>{rows}</tbody></table>
+</div>
 </div>
 <div class="footer">自动生成 · 数据来源于保单管理系统</div>"""
     return content

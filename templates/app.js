@@ -61,3 +61,12 @@ function filterCashYear(year, e) {
         block.style.display = (parseInt(block.getAttribute('data-cash-year')) === year) ? '' : 'none';
     });
 }
+
+
+function switchTab(tab, e) {
+    e.preventDefault();
+    document.querySelectorAll('.tab').forEach(function(t) { t.classList.remove('active'); });
+    e.target.classList.add('active');
+    document.querySelectorAll('.tab-content').forEach(function(c) { c.style.display = 'none'; });
+    document.getElementById('tab-' + tab).style.display = '';
+}
