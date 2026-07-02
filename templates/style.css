@@ -16,8 +16,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-
 .summary-value { font-size: 18px; font-weight: 700; color: #2c3e50; }
 .summary-value.green { color: #27ae60; }
 .summary-value.red { color: #e74c3c; }
-.green { color: #27ae60; }
-.red { color: #e74c3c; }
+.green { color: #27ae60 !important; }
+.red { color: #e74c3c !important; }
 .monthly-detail { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .monthly-title { font-size: 13px; color: #666; line-height: 28px; }
 .monthly-tags { display: flex; gap: 8px; overflow-x: auto; white-space: nowrap; scrollbar-width: none; }
