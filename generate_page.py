@@ -412,10 +412,10 @@ def build_content_html(data, cash_values):
     content = f"""<div class="header">
 <h1>📋 家庭保单管理</h1>
 <p>更新时间：{today.strftime('%Y年%m月%d日')}</p>
+</div>
 <div class="tab-bar">
 <span class="tab active" onclick="switchTab('overview', event)">资产概览</span>
 <span class="tab" onclick="switchTab('payment', event)">缴费详情</span>
-</div>
 </div>
 <div class="tab-content" id="tab-overview">
 <div class="summary">
