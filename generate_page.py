@@ -283,7 +283,7 @@ def build_cash_value_html(data, cash_values):
         for d in yd["details"]:
             profit = d['cv'] - d['premium_paid']
             profit_class = "green" if profit >= 0 else "red"
-            rows += f"<tr><td>{d['user']}</td><td>{d['name']}</td><td>第{d['policy_year']}年</td><td class='amount'>¥{d['cv']:,.0f}</td><td class='amount'>¥{d['premium_paid']:,}</td><td class='amount {profit_class}'>¥{profit:,.0f}</td></tr>"
+            rows += f"<tr><td>{d['user']}</td><td>{d['name']}</td><td>{d['policy_year']}</td><td class='amount'>¥{d['cv']:,.0f}</td><td class='amount'>¥{d['premium_paid']:,}</td><td class='amount {profit_class}'>¥{profit:,.0f}</td></tr>"
         year_divs += f"""<div class="cash-year-block" data-cash-year="{yr}" style="{display}">
 <div class="summary-cards">
 <div class="summary-card"><div class="summary-label">总现金价值</div><div class="summary-value">¥{yd['total_cv']:,.0f}</div></div>
