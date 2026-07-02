@@ -294,7 +294,8 @@ def build_cash_value_html(data, cash_values):
 </tr></thead><tbody>{rows}</tbody></table>
 </div>"""
 
-    html = f"""<div class="summary-section-title">保单现金价值 <span style="font-size:11px;color:#999;font-weight:normal;">POL004第5年+10000后每年+3000；POL006第6年起每年+1000</span></div>
+    html = f"""<div class="summary-section-title">保单现金价值</div>
+<p style="font-size:10px;color:#999;margin:-6px 0 8px 2px;">POL004第5年+10000后每年+3000；POL006第6年起每年+1000</p>
 <div class="monthly-detail"><span class="monthly-title">选择年份：</span><div class="monthly-tags">{year_tags}</div>{year_input}</div>
 {year_divs}"""
     return html
