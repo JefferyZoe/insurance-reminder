@@ -50,7 +50,7 @@ def load_config():
 
 
 # ==================== 提醒配置 ====================
-REMIND_DAYS_BEFORE = 60  # 到期前多少天开始提醒
+REMIND_DAYS_BEFORE = 360  # 到期前多少天开始提醒
 
 # 保单文件目录
 POLICY_FILES_DIR = os.environ.get('POLICY_FILES_DIR', os.path.join(SCRIPT_DIR, "policy_files"))
